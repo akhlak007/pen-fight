@@ -1,0 +1,203 @@
+{
+  "opponents": [
+    {
+      "id": "neel",
+      "name": "Newbie Neel",
+      "avatar": "assets/images/avatars/avatar_neel.png",
+      "pen": "assets/images/pens/pen_blue_ball.png",
+      "aimErrorDeg": 22.0,
+      "powerError": 0.3,
+      "thinkDelayMs": 1600,
+      "riskiness": 0.1,
+      "isBoss": false
+    },
+    {
+      "id": "dev",
+      "name": "Doodle Dev",
+      "avatar": "assets/images/avatars/avatar_dev.png",
+      "pen": "assets/images/pens/pen_gel_glider.png",
+      "aimErrorDeg": 20.3,
+      "powerError": 0.276,
+      "thinkDelayMs": 1510,
+      "riskiness": 0.17,
+      "isBoss": false
+    },
+    {
+      "id": "charlie",
+      "name": "Chewed-Cap Charlie",
+      "avatar": "assets/images/avatars/avatar_charlie.png",
+      "pen": "assets/images/pens/pen_chewed_cap.png",
+      "aimErrorDeg": 18.6,
+      "powerError": 0.252,
+      "thinkDelayMs": 1420,
+      "riskiness": 0.24,
+      "isBoss": false
+    },
+    {
+      "id": "tara",
+      "name": "Topper Tara",
+      "avatar": "assets/images/avatars/avatar_tara.png",
+      "pen": "assets/images/pens/pen_topper_teal.png",
+      "aimErrorDeg": 16.9,
+      "powerError": 0.228,
+      "thinkDelayMs": 1330,
+      "riskiness": 0.31,
+      "isBoss": false
+    },
+    {
+      "id": "meera",
+      "name": "Monitor Meera",
+      "avatar": "assets/images/avatars/avatar_meera.png",
+      "pen": "assets/images/pens/pen_monitor_red.png",
+      "aimErrorDeg": 15.2,
+      "powerError": 0.204,
+      "thinkDelayMs": 1240,
+      "riskiness": 0.38,
+      "isBoss": false
+    },
+    {
+      "id": "pinto",
+      "name": "Prankster Pinto",
+      "avatar": "assets/images/avatars/avatar_pinto.png",
+      "pen": "assets/images/pens/pen_prankster_lime.png",
+      "aimErrorDeg": 13.5,
+      "powerError": 0.18,
+      "thinkDelayMs": 1150,
+      "riskiness": 0.45,
+      "isBoss": false
+    },
+    {
+      "id": "sana",
+      "name": "Sporty Sana",
+      "avatar": "assets/images/avatars/avatar_sana.png",
+      "pen": "assets/images/pens/pen_sporty_orange.png",
+      "aimErrorDeg": 11.8,
+      "powerError": 0.156,
+      "thinkDelayMs": 1060,
+      "riskiness": 0.52,
+      "isBoss": false
+    },
+    {
+      "id": "kabir",
+      "name": "Quiet Kabir",
+      "avatar": "assets/images/avatars/avatar_kabir.png",
+      "pen": "assets/images/pens/pen_quiet_slate.png",
+      "aimErrorDeg": 10.1,
+      "powerError": 0.132,
+      "thinkDelayMs": 970,
+      "riskiness": 0.59,
+      "isBoss": false
+    },
+    {
+      "id": "riya",
+      "name": "Class Rep Riya",
+      "avatar": "assets/images/avatars/avatar_riya.png",
+      "pen": "assets/images/pens/pen_rep_violet.png",
+      "aimErrorDeg": 8.4,
+      "powerError": 0.108,
+      "thinkDelayMs": 880,
+      "riskiness": 0.66,
+      "isBoss": false
+    },
+    {
+      "id": "vik",
+      "name": "Veteran Vik",
+      "avatar": "assets/images/avatars/avatar_vik.png",
+      "pen": "assets/images/pens/pen_veteran_steel.png",
+      "aimErrorDeg": 6.7,
+      "powerError": 0.084,
+      "thinkDelayMs": 790,
+      "riskiness": 0.73,
+      "isBoss": false
+    },
+    {
+      "id": "bhola",
+      "name": "Bench King Bhola",
+      "avatar": "assets/images/avatars/avatar_bhola.png",
+      "pen": "assets/images/pens/pen_bench_king.png",
+      "aimErrorDeg": 5.0,
+      "powerError": 0.06,
+      "thinkDelayMs": 700,
+      "riskiness": 0.8,
+      "isBoss": false
+    },
+    {
+      "id": "boss",
+      "name": "The Last Bencher",
+      "avatar": "assets/images/avatars/avatar_boss.png",
+      "pen": "assets/images/pens/pen_gold_nib.png",
+      "aimErrorDeg": 3.3,
+      "powerError": 0.04,
+      "thinkDelayMs": 610,
+      "riskiness": 0.87,
+      "isBoss": true
+    }
+  ],
+  "pens": [
+    {
+      "id": "starter_blue",
+      "name": "Starter Blue",
+      "asset": "assets/images/pens/pen_starter_blue.png"
+    },
+    {
+      "id": "blue_ball",
+      "name": "Blue Ball",
+      "asset": "assets/images/pens/pen_blue_ball.png"
+    },
+    {
+      "id": "gel_glider",
+      "name": "Gel Glider",
+      "asset": "assets/images/pens/pen_gel_glider.png"
+    },
+    {
+      "id": "chewed_cap",
+      "name": "Chewed Cap",
+      "asset": "assets/images/pens/pen_chewed_cap.png"
+    },
+    {
+      "id": "topper_teal",
+      "name": "Topper Teal",
+      "asset": "assets/images/pens/pen_topper_teal.png"
+    },
+    {
+      "id": "monitor_red",
+      "name": "Monitor Red",
+      "asset": "assets/images/pens/pen_monitor_red.png"
+    },
+    {
+      "id": "prankster_lime",
+      "name": "Prankster Lime",
+      "asset": "assets/images/pens/pen_prankster_lime.png"
+    },
+    {
+      "id": "sporty_orange",
+      "name": "Sporty Orange",
+      "asset": "assets/images/pens/pen_sporty_orange.png"
+    },
+    {
+      "id": "quiet_slate",
+      "name": "Quiet Slate",
+      "asset": "assets/images/pens/pen_quiet_slate.png"
+    },
+    {
+      "id": "rep_violet",
+      "name": "Class Rep Violet",
+      "asset": "assets/images/pens/pen_rep_violet.png"
+    },
+    {
+      "id": "veteran_steel",
+      "name": "Veteran Steel",
+      "asset": "assets/images/pens/pen_veteran_steel.png"
+    },
+    {
+      "id": "bench_king",
+      "name": "Bench King",
+      "asset": "assets/images/pens/pen_bench_king.png"
+    },
+    {
+      "id": "gold_nib",
+      "name": "Gold Nib (Boss)",
+      "asset": "assets/images/pens/pen_gold_nib.png"
+    }
+  ]
+}
