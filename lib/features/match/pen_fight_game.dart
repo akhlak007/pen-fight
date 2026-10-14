@@ -5,14 +5,27 @@ import 'package:flame/components.dart' show Anchor;
 import 'package:flame/game.dart';
 import 'package:flame/sprite.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/game_audio.dart';
 import '../../core/settings_controller.dart';
 import 'match_state.dart';
+import 'physics_math.dart';
 
 class PenFightGame extends FlameGame {
-  PenFightGame({required this.mode, required this.settings})
-    : audio = GameAudio(enabled: () => settings.sound);
+  PenFightGame({
+    required this.mode,
+    required this.settings,
+    List<int>? initialScore,
+  }) : audio = GameAudio(enabled: () => settings.sound),
+       scorer = MatchScorer(initialScore: initialScore),
+       snapshot = ValueNotifier<MatchSnapshot>(
+         MatchSnapshot(
+           phase: MatchPhase.ready,
+           currentPlayer: 0,
+           score: List.unmodifiable(initialScore ?? const [0, 0]),
+         ),
+       );
 
   static const worldWidth = 900.0;
   static const worldHeight = 1600.0;
@@ -21,15 +34,8 @@ class PenFightGame extends FlameGame {
   final GameMode mode;
   final SettingsController settings;
   final GameAudio audio;
-  final snapshot = ValueNotifier<MatchSnapshot>(
-    const MatchSnapshot(
-      phase: MatchPhase.ready,
-      currentPlayer: 0,
-      score: [0, 0],
-    ),
-  );
-
-  final MatchScorer scorer = MatchScorer();
+  final ValueNotifier<MatchSnapshot> snapshot;
+  final MatchScorer scorer;
   final math.Random _random = math.Random();
   final List<_Spark> _sparks = [];
   late final List<_PenBody> _pens;
@@ -42,6 +48,10 @@ class PenFightGame extends FlameGame {
   double _aiDelay = 0;
   bool _roundResolved = false;
   bool _wasPaused = false;
+  final List<double?> _exitTimes = [null, null];
+  double _clock = 0;
+  double _lastImpactSound = -1;
+  int _hapticBand = 0;
 
   @override
   Color backgroundColor() => const Color(0x00000000);
@@ -56,6 +66,7 @@ class PenFightGame extends FlameGame {
       _PenBody(position: Vector2(450, 1160), angle: 0),
       _PenBody(position: Vector2(450, 440), angle: math.pi),
     ];
+    if (settings.music) audio.startMusic();
   }
 
   Vector2 _world(Offset local) {
@@ -87,9 +98,13 @@ class PenFightGame extends FlameGame {
 
   void aimUpdate(Offset local) {
     if (snapshot.value.phase != MatchPhase.aiming || _aimPoint == null) return;
-    final pull = _aimPoint! - _world(local);
-    if (pull.length > 270) pull.scaleTo(270);
+    final pull = clampAim(_aimPoint! - _world(local));
     _aimPull = pull;
+    if (settings.haptics) {
+      final band = (pull.length / 68).floor();
+      if (band > _hapticBand) HapticFeedback.selectionClick();
+      _hapticBand = band;
+    }
   }
 
   void aimEnd() {
@@ -97,6 +112,7 @@ class PenFightGame extends FlameGame {
     final pull = _aimPull ?? Vector2.zero();
     _aimPoint = null;
     _aimPull = null;
+    _hapticBand = 0;
     if (pull.length < 22) {
       _emit(
         snapshot.value.copyWith(
@@ -137,11 +153,13 @@ class PenFightGame extends FlameGame {
       return;
     }
     final safeDt = dt.clamp(0, 1 / 30).toDouble();
+    _clock += safeDt;
     _updateSparks(safeDt);
 
     if (snapshot.value.phase == MatchPhase.moving) {
       for (final pen in _pens) {
         pen.position.add(pen.velocity * safeDt);
+        pen.angle += pen.angularVelocity * safeDt;
         final speed = pen.velocity.length;
         if (speed > 5) {
           final targetAngle = math.atan2(pen.velocity.y, pen.velocity.x);
@@ -149,6 +167,7 @@ class PenFightGame extends FlameGame {
               _angleDelta(pen.angle, targetAngle) * math.min(1, safeDt * 4);
         }
         pen.velocity.scale(math.exp(-1.85 * safeDt));
+        pen.angularVelocity *= math.exp(-2.4 * safeDt);
         if (pen.velocity.length < 13) pen.velocity.setZero();
       }
       _resolveCollision();
@@ -178,49 +197,61 @@ class PenFightGame extends FlameGame {
   void _resolveCollision() {
     final a = _pens[0];
     final b = _pens[1];
-    final delta = b.position - a.position;
-    final distance = delta.length;
-    const radius = 92.0;
-    if (distance <= 0 || distance >= radius * 2) return;
-    final normal = delta / distance;
+    final contact = penContact(
+      CapsulePose(a.position, a.angle),
+      CapsulePose(b.position, b.angle),
+    );
+    if (contact == null) return;
+    final normal = contact.normal;
     final relative = (a.velocity - b.velocity).dot(normal);
-    final overlap = radius * 2 - distance;
-    a.position.sub(normal * (overlap / 2));
-    b.position.add(normal * (overlap / 2));
+    a.position.sub(normal * (contact.penetration / 2));
+    b.position.add(normal * (contact.penetration / 2));
     if (relative <= 0) return;
     final impulse = normal * (relative * .91);
     a.velocity.sub(impulse);
     b.velocity.add(impulse);
+    final tangent = Vector2(-normal.y, normal.x);
+    final spin = (a.velocity - b.velocity).dot(tangent) * .0018;
+    a.angularVelocity -= spin;
+    b.angularVelocity += spin;
     final hitPoint = (a.position + b.position) / 2;
-    for (var i = 0; i < 7; i++) {
-      _sparks.add(
-        _Spark(
-          hitPoint.clone(),
-          Vector2.random(_random) * 110 - Vector2.all(55),
-        ),
+    if (!settings.reducedMotion) {
+      for (var i = 0; i < 7; i++) {
+        _sparks.add(
+          _Spark(
+            hitPoint.clone(),
+            Vector2.random(_random) * 110 - Vector2.all(55),
+          ),
+        );
+      }
+    }
+    if (_clock - _lastImpactSound > .09) {
+      _lastImpactSound = _clock;
+      audio.play(
+        relative > 580 ? 'pen_hit_hard.wav' : 'pen_hit.wav',
+        volume: .65,
       );
     }
-    audio.play(
-      relative > 580 ? 'pen_hit_hard.wav' : 'pen_hit.wav',
-      volume: .65,
-    );
   }
 
   void _checkEdges() {
-    final out = <int>[];
     for (var i = 0; i < _pens.length; i++) {
-      final p = _pens[i].position;
-      if (p.x < _edge ||
-          p.x > worldWidth - _edge ||
-          p.y < _edge ||
-          p.y > worldHeight - _edge) {
-        out.add(i);
+      if (_exitTimes[i] == null &&
+          penHasFallen(
+            CapsulePose(_pens[i].position, _pens[i].angle),
+            left: _edge,
+            top: _edge,
+            right: worldWidth - _edge,
+            bottom: worldHeight - _edge,
+          )) {
+        _exitTimes[i] = _clock;
+        audio.play('pen_fall.wav');
       }
     }
-    if (out.isEmpty) return;
-    if (out.length == 2) {
+    final decision = resolveExitTimes(_exitTimes, _clock);
+    if (decision == ExitDecision.pending) return;
+    if (decision == ExitDecision.draw) {
       _roundResolved = true;
-      audio.play('pen_fall.wav');
       _emit(
         snapshot.value.copyWith(
           phase: MatchPhase.roundOver,
@@ -230,7 +261,7 @@ class PenFightGame extends FlameGame {
       );
       return;
     }
-    _resolveRound(1 - out.single);
+    _resolveRound(decision == ExitDecision.playerZeroWins ? 0 : 1);
   }
 
   void _resolveRound(int winner) {
@@ -312,15 +343,19 @@ class PenFightGame extends FlameGame {
     _pens[0]
       ..position.setValues(450, 1160)
       ..velocity.setZero()
+      ..angularVelocity = 0
       ..angle = 0;
     _pens[1]
       ..position.setValues(450, 440)
       ..velocity.setZero()
+      ..angularVelocity = 0
       ..angle = math.pi;
     _sparks.clear();
     _roundResolved = false;
     _settleTime = 0;
     _aiDelay = 0;
+    _exitTimes[0] = null;
+    _exitTimes[1] = null;
   }
 
   void togglePause() {
@@ -338,6 +373,12 @@ class PenFightGame extends FlameGame {
       _wasPaused = state.phase == MatchPhase.moving;
       _emit(state.copyWith(phase: MatchPhase.paused, message: 'Match paused'));
     }
+  }
+
+  Future<void> onBackground() => audio.pauseAll();
+
+  Future<void> onForeground() async {
+    if (settings.music) await audio.resumeMusic();
   }
 
   void _emit(MatchSnapshot value) => snapshot.value = value;
@@ -467,6 +508,7 @@ class _PenBody {
   final Vector2 position;
   final Vector2 velocity = Vector2.zero();
   double angle;
+  double angularVelocity = 0;
 }
 
 class _Spark {

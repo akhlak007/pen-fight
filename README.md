@@ -1,17 +1,42 @@
-# pen_fight
+# Pen Fight
 
-A new Flutter project.
+A responsive pen-flick classroom game built with Flutter and Flame. It runs in modern desktop/mobile browsers and on Android from one codebase.
 
-## Getting Started
+## Play
 
-This project is a starting point for a Flutter application.
+1. Choose **Solo** to face Priya or **Local** for two players on one device.
+2. Press the highlighted pen.
+3. Drag backward to set direction and power.
+4. Release to flick. Knock the rival pen far enough over the desk edge to take the round.
+5. First to three rounds wins the match.
 
-A few resources to get you started if this is your first Flutter project:
+Phone gameplay uses landscape orientation. Menus remain responsive in portrait.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Run
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```sh
+flutter pub get
+flutter run -d chrome
+```
+
+For Android, connect a device or start an emulator and run:
+
+```sh
+flutter run -d android
+```
+
+## Verify and build
+
+```sh
+flutter analyze
+flutter test
+flutter build web --release
+flutter build apk --debug
+```
+
+Build outputs:
+
+- Web: `build/web/`
+- Android debug APK: `build/app/outputs/flutter-apk/app-debug.apk`
+
+Solo and local matches are implemented. Friend, Instant, Community, accounts, and real online matchmaking are intentionally marked as coming soon.

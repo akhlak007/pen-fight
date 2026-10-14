@@ -1,12 +1,11 @@
 {
-    "name": "pen_fight",
-    "short_name": "pen_fight",
+    "name": "Pen Fight",
+    "short_name": "Pen Fight",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#202417",
+    "theme_color": "#233E96",
+    "description": "A tactile pen-flick classroom game for web and Android.",
     "prefer_related_applications": false,
     "icons": [
         {

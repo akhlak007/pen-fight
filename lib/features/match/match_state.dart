@@ -38,7 +38,12 @@ class MatchSnapshot {
 }
 
 class MatchScorer {
-  MatchScorer({this.target = 3});
+  MatchScorer({this.target = 3, List<int>? initialScore}) {
+    if (initialScore != null && initialScore.length == 2) {
+      score[0] = initialScore[0].clamp(0, target - 1);
+      score[1] = initialScore[1].clamp(0, target - 1);
+    }
+  }
 
   final int target;
   final List<int> score = [0, 0];

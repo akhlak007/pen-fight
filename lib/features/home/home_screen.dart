@@ -17,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   void _start(GameMode mode) {
+    widget.settings.setLastMode(mode == GameMode.local ? 'local' : 'solo');
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MatchScreen(mode: mode, settings: widget.settings),
@@ -91,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       wide: wide,
                       onFriend: () => _comingSoon('Friend match'),
                       onInstant: () => _comingSoon('Instant match'),
+                      onCommunity: () => _comingSoon('Community'),
                       onSettings: _showSettings,
                     ),
                     Expanded(
@@ -114,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: _NotebookContent(
                                 wide: wide,
                                 wins: widget.settings.soloWins,
+                                localScore: widget.settings.localScore,
                                 onSolo: () => _start(GameMode.solo),
                                 onLocal: () => _start(GameMode.local),
                                 onFriend: () => _comingSoon('Friend match'),
@@ -205,6 +208,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       value: widget.settings.reducedMotion,
                       onChanged: widget.settings.setReducedMotion,
                     ),
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.restart_alt,
+                        color: AppColors.red,
+                      ),
+                      title: const Text('Reset progress'),
+                      subtitle: const Text(
+                        'Clear solo wins and saved local score',
+                      ),
+                      onTap: () => _confirmReset(context),
+                    ),
                   ],
                 ),
               ),
@@ -214,6 +229,30 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Future<void> _confirmReset(BuildContext sheetContext) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset all progress?'),
+        content: const Text('This clears solo wins and the saved local match.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('RESET'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.settings.resetProgress();
+      if (sheetContext.mounted) Navigator.pop(sheetContext);
+    }
+  }
 }
 
 class _TopNav extends StatelessWidget {
@@ -221,12 +260,14 @@ class _TopNav extends StatelessWidget {
     required this.wide,
     required this.onFriend,
     required this.onInstant,
+    required this.onCommunity,
     required this.onSettings,
   });
 
   final bool wide;
   final VoidCallback onFriend;
   final VoidCallback onInstant;
+  final VoidCallback onCommunity;
   final VoidCallback onSettings;
 
   @override
@@ -253,7 +294,7 @@ class _TopNav extends StatelessWidget {
           if (wide) ...[
             pill('FRIEND', onFriend),
             pill('INSTANT', onInstant),
-            pill('COMMUNITY', () {}),
+            pill('COMMUNITY', onCommunity),
           ],
           pill('SIGN IN', () => _notice(context), light: true),
           Padding(
@@ -286,6 +327,7 @@ class _NotebookContent extends StatelessWidget {
   const _NotebookContent({
     required this.wide,
     required this.wins,
+    required this.localScore,
     required this.onSolo,
     required this.onLocal,
     required this.onFriend,
@@ -294,6 +336,7 @@ class _NotebookContent extends StatelessWidget {
 
   final bool wide;
   final int wins;
+  final List<int>? localScore;
   final VoidCallback onSolo;
   final VoidCallback onLocal;
   final VoidCallback onFriend;
@@ -303,6 +346,7 @@ class _NotebookContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final left = _Journey(wins: wins, onSolo: onSolo);
     final right = _Modes(
+      localScore: localScore,
       onLocal: onLocal,
       onFriend: onFriend,
       onInstant: onInstant,
@@ -489,10 +533,12 @@ class _Journey extends StatelessWidget {
 
 class _Modes extends StatelessWidget {
   const _Modes({
+    required this.localScore,
     required this.onLocal,
     required this.onFriend,
     required this.onInstant,
   });
+  final List<int>? localScore;
   final VoidCallback onLocal;
   final VoidCallback onFriend;
   final VoidCallback onInstant;
@@ -519,8 +565,10 @@ class _Modes extends StatelessWidget {
         _ModeRow(
           icon: Assets.players,
           title: 'LOCAL',
-          subtitle: '2 players · one desk',
-          tag: 'PLAY',
+          subtitle: localScore == null
+              ? '2 players · one desk'
+              : 'Saved score ${localScore!.join('–')}',
+          tag: localScore == null ? 'PLAY' : 'RESUME',
           onTap: onLocal,
         ),
         _ModeRow(

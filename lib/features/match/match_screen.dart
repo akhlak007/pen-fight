@@ -19,29 +19,57 @@ class MatchScreen extends StatefulWidget {
 
 class _MatchScreenState extends State<MatchScreen> with WidgetsBindingObserver {
   late final PenFightGame _game;
-  bool _recordedWin = false;
+  bool _recordedCurrentWin = false;
+  List<int> _lastSavedScore = const [-1, -1];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _game = PenFightGame(mode: widget.mode, settings: widget.settings);
+    _game = PenFightGame(
+      mode: widget.mode,
+      settings: widget.settings,
+      initialScore: widget.mode == GameMode.local
+          ? widget.settings.localScore
+          : null,
+    );
     _game.snapshot.addListener(_onSnapshot);
   }
 
   void _onSnapshot() {
     final state = _game.snapshot.value;
-    if (!_recordedWin &&
+    if (state.phase != MatchPhase.matchOver) {
+      _recordedCurrentWin = false;
+    }
+    if (!_recordedCurrentWin &&
         widget.mode == GameMode.solo &&
         state.phase == MatchPhase.matchOver &&
         state.roundWinner == 0) {
-      _recordedWin = true;
+      _recordedCurrentWin = true;
       widget.settings.recordSoloWin();
+    }
+    if (widget.mode == GameMode.local &&
+        !_sameScore(state.score, _lastSavedScore)) {
+      _lastSavedScore = List.unmodifiable(state.score);
+      if (state.phase == MatchPhase.matchOver) {
+        widget.settings.clearLocalMatch();
+      } else {
+        widget.settings.saveLocalMatch(state.score);
+      }
     }
   }
 
+  bool _sameScore(List<int> a, List<int> b) =>
+      a.length == b.length &&
+      a.asMap().entries.every((entry) => entry.value == b[entry.key]);
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _game.onForeground();
+    } else {
+      _game.onBackground();
+    }
     if (state != AppLifecycleState.resumed &&
         _game.snapshot.value.phase != MatchPhase.paused) {
       _game.togglePause();
@@ -183,7 +211,11 @@ class _MatchScreenState extends State<MatchScreen> with WidgetsBindingObserver {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Leave this desk?'),
-        content: const Text('The current match score will be cleared.'),
+        content: Text(
+          widget.mode == GameMode.local
+              ? 'Your local match score will be saved for later.'
+              : 'Your current solo match will end.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -234,7 +266,7 @@ class _ChalkHud extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           _ScoreLine(
-            name: 'AKHLAQ',
+            name: 'AKHLAK',
             value: state.score[0],
             active: state.currentPlayer == 0,
           ),
@@ -304,7 +336,7 @@ class _TurnCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = state.currentPlayer == 0
-        ? 'AKHLAQ'
+        ? 'AKHLAK'
         : mode == GameMode.solo
         ? 'PRIYA'
         : 'PLAYER 2';
