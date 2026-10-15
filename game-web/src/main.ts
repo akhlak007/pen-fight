@@ -91,7 +91,10 @@ new UiRoot(store, {
 
 renderer?.setPointListener((winner) => store.recordPoint(winner));
 renderer?.setTurnListener((player) => store.setMatchTurn(player));
-store.subscribe((state) => renderer?.setBoardState(state.player.name, state.match?.score ?? [0, 0]));
+store.subscribe((state) => {
+  renderer?.setBoardState(state.player.name, state.match?.score ?? [0, 0]);
+  if (state.phase === 'result') renderer?.setMatchEnabled(false);
+});
 
 attachLifecycle(store);
 renderer?.setPlayerName(save.playerName);

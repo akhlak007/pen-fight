@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { SoloTurnController } from '../game/solo-turn-controller';
-import { AI_CORNER, isOutsideTable, knockoutWinner, PLAYER_CORNER, resolveEqualMassCollision } from '../game/pen-rules';
+import { AI_CORNER, capsuleContact, isOutsideTable, knockoutWinner, PLAYER_CORNER, resolveEqualMassCollision } from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
 
 const woodGeometry = new RoundedBoxGeometry(5.8, 0.34, 2.2, 3, 0.1);
@@ -239,7 +239,7 @@ export function createClassroom(): ClassroomScene {
   let shotAngle = 1.08;
   let fallListener: (winner: 0 | 1) => void = () => undefined;
   let turnListener: (player: 0 | 1) => void = () => undefined;
-  let falling: { pen: THREE.Group; winner: 0 | 1; elapsed: number } | null = null;
+  let falling: { pens: readonly THREE.Group[]; winner: 0 | 1 | null; elapsed: number } | null = null;
 
   const aimGeometry = new THREE.BufferGeometry();
   const aimLine = new THREE.Line(
@@ -284,15 +284,17 @@ export function createClassroom(): ClassroomScene {
       if (!reducedMotion) bagBlue.rotation.z = Math.sin(time * 0.00035) * 0.008;
       if (falling) {
         falling.elapsed += delta;
-        falling.pen.position.y -= delta * 5.6;
-        falling.pen.rotation.x += delta * 5;
-        falling.pen.rotation.z += delta * 3.2;
+        for (const pen of falling.pens) {
+          pen.position.y -= delta * 5.6;
+          pen.rotation.x += delta * 5;
+          pen.rotation.z += delta * 3.2;
+        }
         if (falling.elapsed >= 0.72) {
           const winner = falling.winner;
           falling = null;
           resetPenPositions();
           turns.finishPoint();
-          fallListener(winner);
+          if (winner !== null) fallListener(winner);
           turnListener(0);
         }
         return;
@@ -303,10 +305,12 @@ export function createClassroom(): ClassroomScene {
         velocity.multiplyScalar(Math.exp(-1.55 * delta));
         pen.rotation.y += velocity.length() * delta * 0.8;
       }
-      const separation = new THREE.Vector2(red.position.x - blue.position.x, red.position.z - blue.position.z);
-      const penDistance = separation.length();
-      if (penDistance < 0.78 && penDistance > 0.001) {
-        const normal = separation.multiplyScalar(1 / penDistance);
+      const contact = capsuleContact(
+        { x: blue.position.x, y: blue.position.z }, blue.rotation.y,
+        { x: red.position.x, y: red.position.z }, red.rotation.y,
+      );
+      if (contact) {
+        const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
         const relative = blueVelocity.clone().sub(redVelocity).dot(normal);
         if (relative > 0.25) {
           const [nextBlue, nextRed] = resolveEqualMassCollision(
@@ -317,7 +321,7 @@ export function createClassroom(): ClassroomScene {
           );
           blueVelocity.set(nextBlue.x, nextBlue.y);
           redVelocity.set(nextRed.x, nextRed.y);
-          const correction = normal.clone().multiplyScalar((0.78 - penDistance) * 0.52);
+          const correction = normal.clone().multiplyScalar(contact.penetration * 0.52);
           blue.position.x -= correction.x;
           blue.position.z -= correction.y;
           red.position.x += correction.x;
@@ -328,7 +332,9 @@ export function createClassroom(): ClassroomScene {
       const redOut = isOutsideTable(red.position.x, red.position.z);
       const winner = knockoutWinner(blueOut, redOut);
       if (winner !== null) {
-        falling = { pen: winner === 0 ? red : blue, winner, elapsed: 0 };
+        falling = winner === 'draw'
+          ? { pens: [blue, red], winner: null, elapsed: 0 }
+          : { pens: [winner === 0 ? red : blue], winner, elapsed: 0 };
         blueVelocity.set(0, 0);
         redVelocity.set(0, 0);
         aimLine.visible = false;

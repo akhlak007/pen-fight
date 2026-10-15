@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_CORNER, isOutsideTable, knockoutWinner, PLAYER_CORNER, resolveEqualMassCollision } from './pen-rules';
+import { AI_CORNER, capsuleContact, isOutsideTable, knockoutWinner, PLAYER_CORNER, resolveEqualMassCollision } from './pen-rules';
 
 describe('pen fight table rules', () => {
   it('places opponents at diagonally opposite corners inside the table', () => {
@@ -22,5 +22,14 @@ describe('pen fight table rules', () => {
     expect(knockoutWinner(false, true)).toBe(0);
     expect(knockoutWinner(true, false)).toBe(1);
     expect(knockoutWinner(false, false)).toBeNull();
+    expect(knockoutWinner(true, true)).toBe('draw');
+  });
+
+  it('detects contact between the ends of long pens', () => {
+    const contact = capsuleContact(
+      { x: 0, y: 0 }, 0,
+      { x: 3.8, y: 0 }, 0,
+    );
+    expect(contact).not.toBeNull();
   });
 });
