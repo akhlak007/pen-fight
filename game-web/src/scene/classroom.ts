@@ -318,6 +318,8 @@ export function createClassroom(): ClassroomScene {
             { x: red.position.x, y: red.position.z },
             { x: blueVelocity.x, y: blueVelocity.y },
             { x: redVelocity.x, y: redVelocity.y },
+            0.92,
+            contact.normal,
           );
           blueVelocity.set(nextBlue.x, nextBlue.y);
           redVelocity.set(nextRed.x, nextRed.y);

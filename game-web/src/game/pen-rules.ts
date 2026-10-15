@@ -67,13 +67,15 @@ export function resolveEqualMassCollision(
   velocityA: Vec2,
   velocityB: Vec2,
   restitution = 0.92,
+  contactNormal?: Vec2,
 ): readonly [Vec2, Vec2] {
   const dx = positionB.x - positionA.x;
   const dy = positionB.y - positionA.y;
   const distance = Math.hypot(dx, dy);
   if (distance <= 0.001) return [velocityA, velocityB];
-  const nx = dx / distance;
-  const ny = dy / distance;
+  const suppliedLength = contactNormal ? Math.hypot(contactNormal.x, contactNormal.y) : 0;
+  const nx = contactNormal && suppliedLength > 0 ? contactNormal.x / suppliedLength : dx / distance;
+  const ny = contactNormal && suppliedLength > 0 ? contactNormal.y / suppliedLength : dy / distance;
   const relative = (velocityA.x - velocityB.x) * nx + (velocityA.y - velocityB.y) * ny;
   if (relative <= 0) return [velocityA, velocityB];
   const impulseX = nx * relative * restitution;

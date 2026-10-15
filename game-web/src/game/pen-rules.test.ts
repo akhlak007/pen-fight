@@ -32,4 +32,19 @@ describe('pen fight table rules', () => {
     );
     expect(contact).not.toBeNull();
   });
+
+  it('uses the capsule contact normal for offset side impacts', () => {
+    const contact = capsuleContact(
+      { x: 0, y: 0 }, 0,
+      { x: 2, y: 0.3 }, 0,
+    );
+    expect(contact).not.toBeNull();
+    const [, ai] = resolveEqualMassCollision(
+      { x: 0, y: 0 }, { x: 2, y: 0.3 },
+      { x: 0, y: 5 }, { x: 0, y: 0 },
+      0.92, contact?.normal,
+    );
+    expect(Math.abs(ai.x)).toBeLessThan(0.01);
+    expect(ai.y).toBeCloseTo(4.6, 1);
+  });
 });
