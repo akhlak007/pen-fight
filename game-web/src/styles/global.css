@@ -117,6 +117,11 @@ select {
 .flick-guide small { opacity: .78; }
 .flick-hand { font-size: 34px; animation: flick-hint 1.5s ease-in-out infinite; }
 @keyframes flick-hint { 50% { transform: translateY(8px); } }
+.match-nav { top: 18px; }
+.turn-note { position: absolute; right: 18px; bottom: 16px; min-width: 170px; padding: 20px 25px 20px 42px; color: var(--ink); transform: rotate(-1deg); text-align: center; }
+.turn-note strong, .turn-note small { display: block; }
+.turn-note strong { font-size: 16px; }
+.turn-note small { margin-top: 4px; font-size: 11px; opacity: .75; }
 
 @media (max-width: 720px) {
   .hero-copy { top: auto; right: 18px; bottom: 55px; left: 18px; width: auto; transform: none; }

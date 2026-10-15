@@ -90,15 +90,20 @@ export class UiRoot {
     }
 
     if (state.phase === 'match' || state.phase === 'paused') {
-      const score = state.match?.score ?? [0, 0];
       const practice = state.match?.mode === 'practice';
-      this.#layer.innerHTML = `<header class="match-hud">
-        <button class="glass-button match-exit" type="button">← CLASSROOM</button>
-        <div class="score-paper"><span>${escapeText(state.player.name)}</span><strong>${practice ? 'FREE PLAY' : `${score[0]} : ${score[1]}`}</strong><span>${practice ? 'PRACTICE' : 'CLASS RIVAL'}</span></div>
-        <div class="turn-chip"><i></i> ${practice ? 'YOUR FLICK' : state.match?.lastScorer === 1 ? 'RIVAL SCORED' : state.match?.lastScorer === 0 ? 'POINT!' : 'YOUR FLICK'}</div>
+      const aiTurn = !practice && state.match?.currentPlayer === 1;
+      this.#layer.innerHTML = `<header class="reference-nav match-nav">
+        <nav aria-label="Match menu">
+          <button class="glass-button nav-secondary" type="button">FRIEND</button>
+          <button class="glass-button" type="button">INSTANT</button>
+          <button class="glass-button nav-secondary" type="button">COMMUNITY</button>
+          <button class="profile-button" type="button">${escapeText(state.player.name)}</button>
+          <button class="glass-button icon-button match-exit" type="button" aria-label="Leave match">☰</button>
+        </nav>
       </header>
-      <section class="flick-guide" aria-label="Flick controls">
-        <span class="flick-hand">☝</span><strong>DRAG TO AIM</strong><small>Pull back · release to flick</small>
+      <section class="turn-note paper" aria-label="Turn status">
+        <strong>${aiTurn ? '🤖 AI is aiming…' : '👉 your turn'}</strong>
+        <small>${aiTurn ? 'Stay sharp' : 'drag your pen to target'}</small>
       </section>`;
       this.#layer.querySelector('.match-exit')?.addEventListener('click', this.actions.onBack);
       return;

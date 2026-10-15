@@ -76,7 +76,7 @@ export function createTileTexture(): THREE.CanvasTexture {
   return textureFromCanvas(canvas, 7, 6);
 }
 
-export function createBlackboardTexture(playerName: string): THREE.CanvasTexture {
+export function createBlackboardTexture(playerName: string, score: readonly [number, number] = [0, 0]): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
   canvas.height = 460;
@@ -104,8 +104,8 @@ export function createBlackboardTexture(playerName: string): THREE.CanvasTexture
   context.fillText('PEN FIGHT', 105, 205);
   context.beginPath(); context.moveTo(100, 218); context.lineTo(405, 218); context.stroke();
   context.font = '34px "Comic Sans MS", cursive';
-  context.fillText(`${playerName || 'New challenger'}     0`, 105, 285);
-  context.fillText('Class rival          0', 105, 350);
+  context.fillText(`${playerName || 'New challenger'}     ${score[0]}`, 105, 285);
+  context.fillText(`AI rival             ${score[1]}`, 105, 350);
   context.font = '24px "Comic Sans MS", cursive';
   context.fillText('Std. 9 - A', 42, 45);
   context.fillText('Sub : Maths', 42, 78);

@@ -95,6 +95,12 @@ export class AppStore {
     });
   }
 
+  setMatchTurn(player: 0 | 1): void {
+    const match = this.#state.match;
+    if (this.#state.phase !== 'match' || !match || match.currentPlayer === player) return;
+    this.#publish({ ...this.#state, match: { ...match, currentPlayer: player } });
+  }
+
   pauseForVisibility(): void {
     if (this.#state.phase !== 'match') return;
     this.#publish({

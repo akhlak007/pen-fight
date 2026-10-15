@@ -52,10 +52,12 @@ export class GameRenderer {
       if (!this.#dragStart || !this.#matchEnabled) return;
       const distance = Math.hypot(event.clientX - this.#dragStart.x, event.clientY - this.#dragStart.y);
       if (distance >= 16) this.#classroom.flick(distance * 0.0018);
+      else this.#classroom.cancelAim();
       this.#dragStart = null;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     });
     canvas.addEventListener('pointercancel', (event) => {
+      this.#classroom.cancelAim();
       this.#dragStart = null;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     });
@@ -76,8 +78,11 @@ export class GameRenderer {
   }
 
   setPlayerName(name: string): void { this.#classroom.updateBoard(name); }
+  setBoardState(name: string, score: readonly [number, number]): void { this.#classroom.updateBoard(name, score); }
   setReducedMotion(value: boolean): void { this.#reducedMotion = value; }
   setPointListener(listener: (winner: 0 | 1) => void): void { this.#classroom.setFallListener(listener); }
+  setTurnListener(listener: (player: 0 | 1) => void): void { this.#classroom.setTurnListener(listener); }
+  setMatchMode(mode: 'quick' | 'practice'): void { this.#classroom.setMatchMode(mode); }
   setMatchEnabled(value: boolean): void {
     this.#matchEnabled = value;
     this.canvas.style.cursor = value ? 'grab' : 'default';
@@ -85,8 +90,8 @@ export class GameRenderer {
   }
 
   focusArena(): void {
-    this.#camera.position.set(0, 18.5, 16.5);
-    this.#target.set(0, 2, 0.4);
+    this.#camera.position.set(0, 20.5, 18.5);
+    this.#target.set(0, 1.8, -2.8);
     this.#camera.lookAt(this.#target);
   }
 

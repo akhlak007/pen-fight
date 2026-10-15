@@ -71,10 +71,13 @@ new UiRoot(store, {
     store.startMatch(mode);
     renderer?.focusArena();
     renderer?.setMatchEnabled(true);
+    renderer?.setMatchMode(mode);
   },
   onRematch() {
-    store.startMatch(store.snapshot.match?.mode ?? 'quick');
+    const mode = store.snapshot.match?.mode ?? 'quick';
+    store.startMatch(mode);
     renderer?.setMatchEnabled(true);
+    renderer?.setMatchMode(mode);
   },
   onEditName() {
     store.transition('naming');
@@ -87,6 +90,8 @@ new UiRoot(store, {
 });
 
 renderer?.setPointListener((winner) => store.recordPoint(winner));
+renderer?.setTurnListener((player) => store.setMatchTurn(player));
+store.subscribe((state) => renderer?.setBoardState(state.player.name, state.match?.score ?? [0, 0]));
 
 attachLifecycle(store);
 renderer?.setPlayerName(save.playerName);
