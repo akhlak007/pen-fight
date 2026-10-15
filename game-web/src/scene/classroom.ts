@@ -98,10 +98,12 @@ export interface ClassroomScene {
   readonly group: THREE.Group;
   readonly heroPens: THREE.Group;
   updateBoard(playerName: string): void;
-  update(time: number, reducedMotion: boolean): void;
+  update(time: number, delta: number, reducedMotion: boolean): void;
   aim(deltaX: number, pull: number): void;
   flick(power: number): void;
   resetPens(): void;
+  canGrab(raycaster: THREE.Raycaster): boolean;
+  setFallListener(listener: (winner: 0 | 1) => void): void;
 }
 
 export function createClassroom(): ClassroomScene {
@@ -172,6 +174,7 @@ export function createClassroom(): ClassroomScene {
   const blueVelocity = new THREE.Vector2();
   const redVelocity = new THREE.Vector2();
   let aimOffset = 0;
+  let fallListener: (winner: 0 | 1) => void = () => undefined;
 
   return {
     group,
@@ -182,19 +185,22 @@ export function createClassroom(): ClassroomScene {
       boardMaterial.needsUpdate = true;
       previous?.dispose();
     },
-    update(time: number, reducedMotion: boolean) {
+    update(time: number, delta: number, reducedMotion: boolean) {
       if (!reducedMotion) bagBlue.rotation.z = Math.sin(time * 0.00035) * 0.008;
       for (const [pen, velocity] of [[blue, blueVelocity], [red, redVelocity]] as const) {
-        pen.position.x += velocity.x;
-        pen.position.z += velocity.y;
-        velocity.multiplyScalar(0.975);
-        pen.rotation.y += velocity.length() * 0.02;
+        pen.position.x += velocity.x * delta;
+        pen.position.z += velocity.y * delta;
+        velocity.multiplyScalar(Math.exp(-1.55 * delta));
+        pen.rotation.y += velocity.length() * delta * 0.8;
       }
-      if (blue.position.distanceTo(red.position) < 0.72 && blueVelocity.length() > 0.025) {
+      if (blue.position.distanceTo(red.position) < 0.72 && blueVelocity.length() > 1.1) {
         redVelocity.add(blueVelocity.clone().multiplyScalar(0.72));
         blueVelocity.multiplyScalar(0.28);
       }
-      if (Math.abs(blue.position.x) > 3.2 || Math.abs(blue.position.z - 1.8) > 2.2 || Math.abs(red.position.x) > 3.2 || Math.abs(red.position.z - 1.8) > 2.2) {
+      const blueOut = Math.abs(blue.position.x) > 3.2 || Math.abs(blue.position.z - 1.8) > 2.2;
+      const redOut = Math.abs(red.position.x) > 3.2 || Math.abs(red.position.z - 1.8) > 2.2;
+      if (blueOut || redOut) {
+        fallListener(redOut && !blueOut ? 0 : 1);
         blue.position.copy(blueStart);
         red.position.copy(redStart);
         blueVelocity.set(0, 0);
@@ -207,13 +213,19 @@ export function createClassroom(): ClassroomScene {
       blue.position.z = blueStart.z + THREE.MathUtils.clamp(pull * 0.006, 0, 0.7);
     },
     flick(power: number) {
-      const strength = THREE.MathUtils.clamp(power, 0.06, 0.23);
+      const strength = THREE.MathUtils.clamp(power * 55, 3.4, 12.5);
       blueVelocity.set(Math.cos(aimOffset) * strength, -Math.sin(aimOffset) * strength);
       blue.position.z = blueStart.z;
     },
     resetPens() {
       blue.position.copy(blueStart); red.position.copy(redStart);
       blueVelocity.set(0, 0); redVelocity.set(0, 0);
+    },
+    canGrab(raycaster: THREE.Raycaster) {
+      return raycaster.intersectObject(blue, true).length > 0;
+    },
+    setFallListener(listener: (winner: 0 | 1) => void) {
+      fallListener = listener;
     },
   };
 }

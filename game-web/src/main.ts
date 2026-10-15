@@ -56,8 +56,12 @@ new UiRoot(store, {
   },
   onChooseMode(mode) {
     storage.update({ lastMode: mode });
-    store.transition('match');
+    store.startMatch(mode);
     renderer?.focusArena();
+    renderer?.setMatchEnabled(true);
+  },
+  onRematch() {
+    store.startMatch(store.snapshot.match?.mode ?? 'quick');
     renderer?.setMatchEnabled(true);
   },
   onEditName() {
@@ -69,6 +73,8 @@ new UiRoot(store, {
     renderer?.setReducedMotion(value);
   },
 });
+
+renderer?.setPointListener((winner) => store.recordPoint(winner));
 
 attachLifecycle(store);
 renderer?.setPlayerName(save.playerName);

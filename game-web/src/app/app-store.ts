@@ -72,6 +72,29 @@ export class AppStore {
     });
   }
 
+  startMatch(mode: 'quick' | 'practice'): void {
+    if (this.#state.phase !== 'selectingMode' && this.#state.phase !== 'result') {
+      throw new Error(`Cannot start a match from ${this.#state.phase}.`);
+    }
+    this.#publish({
+      ...this.#state,
+      phase: 'match',
+      match: { score: [0, 0], currentPlayer: 0, mode },
+    });
+  }
+
+  recordPoint(winner: 0 | 1): void {
+    const match = this.#state.match;
+    if (this.#state.phase !== 'match' || !match || match.mode === 'practice') return;
+    const score: [number, number] = [...match.score];
+    score[winner] += 1;
+    this.#publish({
+      ...this.#state,
+      phase: score[winner] >= 3 ? 'result' : 'match',
+      match: { ...match, score, currentPlayer: winner === 0 ? 1 : 0 },
+    });
+  }
+
   pauseForVisibility(): void {
     if (this.#state.phase !== 'match') return;
     this.#publish({

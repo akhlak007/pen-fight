@@ -41,11 +41,17 @@ select {
   width: 100%;
   height: 100%;
   background: #46503a;
+  touch-action: none;
 }
 
 .ui-layer { position: absolute; inset: 0; pointer-events: none; color: var(--chalk); }
 .ui-layer button, .ui-layer input, .ui-layer section, .ui-layer header, .ui-layer aside { pointer-events: auto; }
 .splash-card, .name-card, .mode-card { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%) rotate(-.5deg); width: min(760px, calc(100% - 32px)); padding: 44px 58px 48px; }
+.result-card { position: absolute; inset: 50% auto auto 50%; width: min(560px, calc(100% - 32px)); padding: 44px 58px 48px; transform: translate(-50%, -50%) rotate(-.5deg); }
+.result-card h1 { margin: 0; font-size: clamp(38px, 6vw, 64px); text-transform: uppercase; }
+.result-card p { font-size: 18px; }
+.result-card p strong { padding: 0 12px; color: #eb641d; font-size: 28px; }
+.result-actions { display: flex; align-items: center; gap: 22px; margin-top: 28px; }
 .splash-card h1, .name-card h1, .mode-card h1 { margin: 0 0 14px; font: 900 clamp(30px, 5vw, 58px)/1 "Trebuchet MS", sans-serif; text-transform: uppercase; letter-spacing: -.045em; }
 .splash-card p, .name-card p { font-size: 18px; }
 .scribble-progress { height: 13px; margin: 28px 0 9px; background: rgba(24,63,134,.16); transform: skewX(-8deg); }
@@ -113,6 +119,15 @@ select {
   .mode-choice strong { margin-top: 25px; }
   .brand-chip small { display: none; }
   .room-caption { display: none; }
+}
+
+@media (max-height: 620px) {
+  .ui-layer { overflow-y: auto; }
+  .splash-card, .name-card, .mode-card, .result-card { position: relative; inset: auto; width: min(760px, calc(100% - 24px)); max-height: none; margin: 72px auto 28px; padding-top: 30px; padding-bottom: 34px; transform: rotate(-.35deg); }
+  .mode-grid { grid-template-columns: 1fr 1fr; }
+  .mode-choice { min-height: 130px; }
+  .mode-choice strong { margin-top: 14px; }
+  .name-card h1, .mode-card h1 { font-size: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

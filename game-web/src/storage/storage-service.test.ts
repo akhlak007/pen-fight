@@ -9,6 +9,12 @@ class MemoryStorage implements KeyValueStorage {
   removeItem(key: string): void { this.values.delete(key); }
 }
 
+class BlockedStorage implements KeyValueStorage {
+  getItem(): string | null { throw new Error('blocked'); }
+  setItem(): void { throw new Error('blocked'); }
+  removeItem(): void { throw new Error('blocked'); }
+}
+
 describe('StorageService', () => {
   it('returns safe defaults for empty or corrupt saves', () => {
     const memory = new MemoryStorage();
@@ -67,5 +73,14 @@ describe('StorageService', () => {
     expect(reset.settings.music).toBe(false);
     expect(reset.progression).toEqual(defaultSave.progression);
     expect(reset.unlockedPens).toEqual(['classic-blue']);
+  });
+
+  it('keeps an in-memory save when browser storage is blocked', () => {
+    const service = new StorageService(new BlockedStorage());
+    expect(service.load()).toEqual(defaultSave);
+    const save = service.save({ ...defaultSave, playerName: 'Offline' });
+    expect(save.playerName).toBe('Offline');
+    expect(service.load().playerName).toBe('Offline');
+    expect(service.isPersistent).toBe(false);
   });
 });

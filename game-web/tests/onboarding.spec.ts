@@ -25,4 +25,9 @@ test('rejects a blank name and supports mode selection', async ({ page }) => {
   await page.getByRole('button', { name: /PLAY NOW/ }).click();
   await expect(page.getByRole('heading', { name: 'School rules?' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Quick Match/ })).toBeVisible();
+  await page.getByRole('button', { name: /Quick Match/ }).click();
+  await expect(page.getByText('0 : 0')).toBeVisible();
+  await expect(page.getByLabel('Flick controls')).toContainText('DRAG TO AIM');
+  await page.getByRole('button', { name: /CLASSROOM/ }).click();
+  await expect(page.getByRole('heading', { name: /One desk/ })).toBeVisible();
 });

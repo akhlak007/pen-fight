@@ -54,6 +54,33 @@ describe('AppStore', () => {
   });
 });
 
+describe('match rules', () => {
+  function readyStore(mode: 'quick' | 'practice'): AppStore {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('selectingMode');
+    store.startMatch(mode);
+    return store;
+  }
+
+  it('ends a quick match when either player reaches three points', () => {
+    const store = readyStore('quick');
+    store.recordPoint(0);
+    store.recordPoint(0);
+    expect(store.snapshot.phase).toBe('match');
+    store.recordPoint(0);
+    expect(store.snapshot.phase).toBe('result');
+    expect(store.snapshot.match?.score).toEqual([3, 0]);
+  });
+
+  it('keeps practice mode scoreless', () => {
+    const store = readyStore('practice');
+    store.recordPoint(0);
+    expect(store.snapshot.match?.score).toEqual([0, 0]);
+    expect(store.snapshot.phase).toBe('match');
+  });
+});
+
 describe('attachLifecycle', () => {
   it('routes document visibility and page lifecycle events', () => {
     const store = new AppStore();

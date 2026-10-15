@@ -10,21 +10,33 @@ export interface KeyValueStorage {
 const LEGACY_NAME_KEYS = ['penFight.playerName', 'playerName', 'pen-fight-name'];
 
 export class StorageService {
+  #memory: SaveData = defaultSave;
+  #persistent = true;
+
   constructor(private readonly storage: KeyValueStorage) {}
 
+  get isPersistent(): boolean { return this.#persistent; }
+
   load(): SaveData {
-    const raw = this.storage.getItem(STORAGE_KEY);
-    if (!raw) return this.importLegacy();
     try {
-      return migrateSave(JSON.parse(raw));
+      const raw = this.storage.getItem(STORAGE_KEY);
+      if (!raw) return this.importLegacy();
+      this.#memory = migrateSave(JSON.parse(raw));
+      return this.#memory;
     } catch {
-      return defaultSave;
+      this.#persistent = false;
+      return this.#memory;
     }
   }
 
   save(data: SaveData): SaveData {
     const safe = sanitizeSave(data);
-    this.storage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    this.#memory = safe;
+    try {
+      this.storage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    } catch {
+      this.#persistent = false;
+    }
     return safe;
   }
 
@@ -38,9 +50,13 @@ export class StorageService {
   }
 
   private importLegacy(): SaveData {
-    for (const key of LEGACY_NAME_KEYS) {
-      const name = this.storage.getItem(key)?.trim();
-      if (name) return this.save({ ...defaultSave, playerName: name.slice(0, 18) });
+    try {
+      for (const key of LEGACY_NAME_KEYS) {
+        const name = this.storage.getItem(key)?.trim();
+        if (name) return this.save({ ...defaultSave, playerName: name.slice(0, 18) });
+      }
+    } catch {
+      this.#persistent = false;
     }
     return defaultSave;
   }

@@ -10,6 +10,8 @@ export class GameRenderer {
   #frame = 0;
   #reducedMotion = false;
   #target = new THREE.Vector3(0, 1.7, 0.5);
+  readonly #timer = new THREE.Timer();
+  readonly #raycaster = new THREE.Raycaster();
   #matchEnabled = false;
   #dragStart: { x: number; y: number } | null = null;
 
@@ -30,9 +32,16 @@ export class GameRenderer {
     this.#camera.lookAt(this.#target);
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(canvas);
+    this.#timer.connect(document);
     this.#resize();
     canvas.addEventListener('pointerdown', (event) => {
       if (!this.#matchEnabled) return;
+      const rect = canvas.getBoundingClientRect();
+      this.#raycaster.setFromCamera(new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      ), this.#camera);
+      if (!this.#classroom.canGrab(this.#raycaster)) return;
       this.#dragStart = { x: event.clientX, y: event.clientY };
       canvas.setPointerCapture(event.pointerId);
     });
@@ -43,15 +52,21 @@ export class GameRenderer {
     canvas.addEventListener('pointerup', (event) => {
       if (!this.#dragStart || !this.#matchEnabled) return;
       const distance = Math.hypot(event.clientX - this.#dragStart.x, event.clientY - this.#dragStart.y);
-      this.#classroom.flick(distance * 0.0018);
+      if (distance >= 16) this.#classroom.flick(distance * 0.0018);
       this.#dragStart = null;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    });
+    canvas.addEventListener('pointercancel', (event) => {
+      this.#dragStart = null;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     });
   }
 
   start(): void {
     if (this.#frame) return;
     this.#renderer.setAnimationLoop((time) => {
-      this.#classroom.update(time, this.#reducedMotion);
+      this.#timer.update(time);
+      this.#classroom.update(time, Math.min(this.#timer.getDelta(), 0.05), this.#reducedMotion);
       if (!this.#reducedMotion) {
         this.#camera.position.x = Math.sin(time * 0.00008) * 0.38;
         this.#camera.lookAt(this.#target);
@@ -63,6 +78,7 @@ export class GameRenderer {
 
   setPlayerName(name: string): void { this.#classroom.updateBoard(name); }
   setReducedMotion(value: boolean): void { this.#reducedMotion = value; }
+  setPointListener(listener: (winner: 0 | 1) => void): void { this.#classroom.setFallListener(listener); }
   setMatchEnabled(value: boolean): void {
     this.#matchEnabled = value;
     this.canvas.style.cursor = value ? 'grab' : 'default';
