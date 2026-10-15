@@ -1,0 +1,88 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { AppStore } from './app-store';
+import { attachLifecycle } from './lifecycle';
+
+describe('AppStore', () => {
+  it('starts in booting with safe defaults', () => {
+    const store = new AppStore();
+
+    expect(store.snapshot.phase).toBe('booting');
+    expect(store.snapshot.player.name).toBe('');
+    expect(store.snapshot.settings.graphicsProfile).toBe('auto');
+    expect(Object.isFrozen(store.snapshot)).toBe(true);
+  });
+
+  it('publishes immutable snapshots and supports unsubscribe', () => {
+    const store = new AppStore();
+    const listener = vi.fn();
+    const unsubscribe = store.subscribe(listener);
+
+    store.setPlayerName('  Riya  ');
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(store.snapshot.player.name).toBe('Riya');
+    expect(Object.isFrozen(store.snapshot.player)).toBe(true);
+
+    unsubscribe();
+    store.setPlayerName('Dev');
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects illegal phase transitions', () => {
+    const store = new AppStore();
+
+    expect(() => store.transition('result')).toThrow(/booting.*result/i);
+    expect(store.snapshot.phase).toBe('booting');
+  });
+
+  it('pauses a match while hidden and resumes only visibility pauses', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('match');
+
+    store.pauseForVisibility();
+    expect(store.snapshot.phase).toBe('paused');
+    expect(store.snapshot.pauseReason).toBe('visibility');
+
+    store.resumeFromVisibility();
+    expect(store.snapshot.phase).toBe('match');
+
+    store.pauseManually();
+    store.resumeFromVisibility();
+    expect(store.snapshot.phase).toBe('paused');
+    expect(store.snapshot.pauseReason).toBe('manual');
+  });
+});
+
+describe('attachLifecycle', () => {
+  it('routes document visibility and page lifecycle events', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('match');
+    const handlers = new Map<string, EventListener>();
+    const lifecycleTarget = {
+      hidden: false,
+      addEventListener: vi.fn((name: string, handler: EventListener) => {
+        handlers.set(name, handler);
+      }),
+      removeEventListener: vi.fn((name: string) => {
+        handlers.delete(name);
+      }),
+    };
+
+    const detach = attachLifecycle(store, lifecycleTarget);
+    lifecycleTarget.hidden = true;
+    handlers.get('visibilitychange')?.(new Event('visibilitychange'));
+    expect(store.snapshot.phase).toBe('paused');
+
+    lifecycleTarget.hidden = false;
+    handlers.get('visibilitychange')?.(new Event('visibilitychange'));
+    expect(store.snapshot.phase).toBe('match');
+
+    handlers.get('pagehide')?.(new Event('pagehide'));
+    expect(store.snapshot.phase).toBe('paused');
+
+    detach();
+    expect(lifecycleTarget.removeEventListener).toHaveBeenCalledTimes(2);
+  });
+});
