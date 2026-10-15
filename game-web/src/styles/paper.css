@@ -1,0 +1,22 @@
+.paper {
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, var(--line) 32px, transparent 33px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: var(--shadow);
+  filter: drop-shadow(0 2px 0 rgba(255,255,255,.22));
+  clip-path: polygon(0 3%, 5% 1%, 11% 4%, 18% 1%, 25% 3%, 32% 0, 39% 3%, 47% 0, 54% 2%, 62% 0, 69% 3%, 76% 0, 83% 2%, 91% 0, 100% 2%, 99% 96%, 92% 99%, 84% 96%, 76% 99%, 67% 96%, 59% 99%, 51% 96%, 43% 99%, 34% 96%, 25% 99%, 17% 96%, 8% 99%, 1% 96%);
+}
+
+.paper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 26px;
+  border-left: 2px solid rgba(207, 74, 55, 0.42);
+  pointer-events: none;
+}
+
+.eyebrow { margin: 0 0 8px; font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .17em; color: #c14e1b; }
+.eyebrow.light { color: #ffd399; text-shadow: 0 1px 6px #000; }

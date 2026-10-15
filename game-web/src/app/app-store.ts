@@ -1,4 +1,5 @@
 import {
+  type AppSettings,
   type AppPhase,
   type AppState,
   createInitialState,
@@ -10,7 +11,7 @@ type AppListener = (state: AppState) => void;
 const legalTransitions: Readonly<Record<AppPhase, readonly AppPhase[]>> = {
   booting: ['naming', 'home', 'fatalError'],
   naming: ['home', 'fatalError'],
-  home: ['selectingMode', 'match', 'fatalError'],
+  home: ['naming', 'selectingMode', 'match', 'fatalError'],
   selectingMode: ['home', 'match', 'fatalError'],
   match: ['paused', 'result', 'home', 'fatalError'],
   paused: ['match', 'home', 'fatalError'],
@@ -43,6 +44,32 @@ export class AppStore {
     const name = value.trim().slice(0, 18);
     if (!name) throw new Error('Player name cannot be empty.');
     this.#publish({ ...this.#state, player: { name } });
+  }
+
+  hydrate(playerName: string, settings: AppSettings): void {
+    this.#publish({
+      ...this.#state,
+      player: { name: playerName.trim().slice(0, 18) },
+      settings,
+    });
+  }
+
+  setLoadProgress(loaded: number, total: number, label: string): void {
+    this.#publish({
+      ...this.#state,
+      loadProgress: {
+        loaded: Math.max(0, loaded),
+        total: Math.max(1, total),
+        label,
+      },
+    });
+  }
+
+  updateSettings(patch: Partial<AppSettings>): void {
+    this.#publish({
+      ...this.#state,
+      settings: { ...this.#state.settings, ...patch },
+    });
   }
 
   pauseForVisibility(): void {
