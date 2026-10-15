@@ -34,6 +34,7 @@ export interface MatchSnapshot {
   readonly score: readonly [number, number];
   readonly currentPlayer: 0 | 1;
   readonly mode: 'quick' | 'practice';
+  readonly lastScorer?: 0 | 1;
 }
 
 export interface AppState {

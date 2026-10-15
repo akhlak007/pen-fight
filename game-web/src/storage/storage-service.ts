@@ -18,6 +18,7 @@ export class StorageService {
   get isPersistent(): boolean { return this.#persistent; }
 
   load(): SaveData {
+    if (!this.#persistent) return this.#memory;
     try {
       const raw = this.storage.getItem(STORAGE_KEY);
       if (!raw) return this.importLegacy();

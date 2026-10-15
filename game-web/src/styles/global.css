@@ -124,10 +124,13 @@ select {
 @media (max-height: 620px) {
   .ui-layer { overflow-y: auto; }
   .splash-card, .name-card, .mode-card, .result-card { position: relative; inset: auto; width: min(760px, calc(100% - 24px)); max-height: none; margin: 72px auto 28px; padding-top: 30px; padding-bottom: 34px; transform: rotate(-.35deg); }
-  .mode-grid { grid-template-columns: 1fr 1fr; }
   .mode-choice { min-height: 130px; }
   .mode-choice strong { margin-top: 14px; }
   .name-card h1, .mode-card h1 { font-size: 32px; }
+}
+
+@media (max-height: 620px) and (min-width: 721px) {
+  .mode-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -95,7 +95,7 @@ export class UiRoot {
       this.#layer.innerHTML = `<header class="match-hud">
         <button class="glass-button match-exit" type="button">← CLASSROOM</button>
         <div class="score-paper"><span>${escapeText(state.player.name)}</span><strong>${practice ? 'FREE PLAY' : `${score[0]} : ${score[1]}`}</strong><span>${practice ? 'PRACTICE' : 'CLASS RIVAL'}</span></div>
-        <div class="turn-chip"><i></i> ${practice || state.match?.currentPlayer === 0 ? 'YOUR FLICK' : 'RIVAL SCORED'}</div>
+        <div class="turn-chip"><i></i> ${practice ? 'YOUR FLICK' : state.match?.lastScorer === 1 ? 'RIVAL SCORED' : state.match?.lastScorer === 0 ? 'POINT!' : 'YOUR FLICK'}</div>
       </header>
       <section class="flick-guide" aria-label="Flick controls">
         <span class="flick-hand">☝</span><strong>DRAG TO AIM</strong><small>Pull back · release to flick</small>

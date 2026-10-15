@@ -23,7 +23,19 @@ if (!mount) throw new Error('Pen Fight could not find its application mount.');
 const { root, canvas } = createApplicationShell();
 mount.replaceChildren(root);
 const store = new AppStore();
-const storage = new StorageService(localStorage);
+const fallbackValues = new Map<string, string>();
+const fallbackStorage = {
+  getItem: (key: string) => fallbackValues.get(key) ?? null,
+  setItem: (key: string, value: string) => { fallbackValues.set(key, value); },
+  removeItem: (key: string) => { fallbackValues.delete(key); },
+};
+let availableStorage = fallbackStorage;
+try {
+  availableStorage = window.localStorage;
+} catch {
+  // Sandboxed/private contexts can deny access to the localStorage getter itself.
+}
+const storage = new StorageService(availableStorage);
 const save = storage.load();
 store.hydrate(save.playerName, save.settings);
 

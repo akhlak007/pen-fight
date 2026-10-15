@@ -91,7 +91,7 @@ export class AppStore {
     this.#publish({
       ...this.#state,
       phase: score[winner] >= 3 ? 'result' : 'match',
-      match: { ...match, score, currentPlayer: winner === 0 ? 1 : 0 },
+      match: { ...match, score, currentPlayer: 0, lastScorer: winner },
     });
   }
 

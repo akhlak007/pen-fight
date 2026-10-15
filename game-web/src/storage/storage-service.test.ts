@@ -15,6 +15,10 @@ class BlockedStorage implements KeyValueStorage {
   removeItem(): void { throw new Error('blocked'); }
 }
 
+class WriteBlockedStorage extends MemoryStorage {
+  override setItem(): void { throw new Error('quota'); }
+}
+
 describe('StorageService', () => {
   it('returns safe defaults for empty or corrupt saves', () => {
     const memory = new MemoryStorage();
@@ -82,5 +86,11 @@ describe('StorageService', () => {
     expect(save.playerName).toBe('Offline');
     expect(service.load().playerName).toBe('Offline');
     expect(service.isPersistent).toBe(false);
+  });
+
+  it('does not overwrite memory with stale storage after a quota failure', () => {
+    const service = new StorageService(new WriteBlockedStorage());
+    service.save({ ...defaultSave, playerName: 'Memory' });
+    expect(service.update({ lastMode: 'practice' }).playerName).toBe('Memory');
   });
 });
