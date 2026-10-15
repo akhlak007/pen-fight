@@ -71,6 +71,16 @@ select {
 .brand-chip strong { font-size: 14px; letter-spacing: .08em; }
 .brand-chip small { font: 10px ui-monospace, monospace; opacity: .75; }
 .brand-icon { display: grid; place-items: center; width: 48px; height: 38px; color: #3f1b09; background: var(--orange); border: 2px solid #ad3c0c; border-radius: 7px 4px 9px 3px; transform: rotate(-3deg); font-weight: 1000; text-shadow: none; box-shadow: 0 4px 0 #6c270d; }
+.reference-nav { position: absolute; z-index: 3; top: 14px; right: 12px; }
+.reference-nav nav { display: flex; align-items: center; gap: 9px; }
+.reference-nav .glass-button { min-height: 54px; padding-inline: 17px; border-radius: 12px; font-size: 14px; font-weight: 500; }
+.reference-nav .icon-button { width: 55px; padding: 0; }
+.profile-button { min-height: 54px; max-width: 150px; padding: 0 19px; overflow: hidden; color: #183f86; background: #f1efe3; border: 1px solid #c8c2af; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+.instant-button { background: rgba(76, 51, 32, .62); }
+.reference-brand { position: absolute; z-index: 2; bottom: 19px; left: 16px; display: flex; align-items: center; gap: 11px; text-shadow: 0 2px 4px #000; }
+.reference-brand > span:last-child { display: grid; }
+.reference-brand strong { font-size: 13px; letter-spacing: .06em; }
+.reference-brand small { margin-top: 2px; font-size: 12px; }
 .hero-copy { position: absolute; z-index: 2; left: clamp(22px, 5vw, 92px); top: 50%; width: min(490px, 43vw); transform: translateY(-47%); text-shadow: 0 3px 18px #17130c, 0 1px 2px #000; }
 .hero-copy h1 { margin: 0; font: 1000 clamp(42px, 5.8vw, 88px)/.88 "Trebuchet MS", sans-serif; letter-spacing: -.065em; text-transform: uppercase; }
 .hero-copy h1 em { color: #ff8a31; font-style: normal; }
@@ -119,6 +129,10 @@ select {
   .mode-choice strong { margin-top: 25px; }
   .brand-chip small { display: none; }
   .room-caption { display: none; }
+  .reference-nav { right: 8px; left: 8px; overflow-x: auto; scrollbar-width: none; }
+  .reference-nav nav { justify-content: flex-end; min-width: max-content; }
+  .reference-nav .nav-secondary { display: none; }
+  .reference-brand { bottom: 12px; }
 }
 
 @media (max-height: 620px) {

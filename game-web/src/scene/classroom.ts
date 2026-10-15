@@ -94,6 +94,44 @@ function createNotebook(): THREE.Group {
   return group;
 }
 
+function createPencilBox(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new RoundedBoxGeometry(1.85, 0.34, 0.62, 3, 0.09), new THREE.MeshStandardMaterial({ color: '#d99018', roughness: 0.64 }));
+  const label = new THREE.Mesh(new RoundedBoxGeometry(0.92, 0.025, 0.36, 2, 0.025), new THREE.MeshStandardMaterial({ color: '#263e72', roughness: 0.72 }));
+  label.position.y = 0.19;
+  group.add(body, label);
+  enableShadows(group);
+  return group;
+}
+
+function createLoosePaper(): THREE.Group {
+  const group = new THREE.Group();
+  const paper = new THREE.Mesh(new RoundedBoxGeometry(2.1, 0.055, 1.45, 2, 0.025), new THREE.MeshStandardMaterial({ color: '#eee9d8', roughness: 0.92 }));
+  const pencil = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.65, 8), new THREE.MeshStandardMaterial({ color: '#bd2d24', roughness: 0.54 }));
+  pencil.rotation.z = Math.PI / 2;
+  pencil.position.set(0.15, 0.11, 0.08);
+  group.add(paper, pencil);
+  enableShadows(group);
+  return group;
+}
+
+function createArenaTable(material: THREE.Material): THREE.Group {
+  const group = new THREE.Group();
+  const top = new THREE.Mesh(new RoundedBoxGeometry(8.25, 0.42, 14.1, 4, 0.1), material);
+  top.position.y = 2.32;
+  group.add(top);
+  const metal = new THREE.MeshStandardMaterial({ color: '#11100e', metalness: 0.76, roughness: 0.32 });
+  for (const x of [-3.15, 3.15]) {
+    for (const z of [-5.85, 5.85]) {
+      const leg = new THREE.Mesh(new RoundedBoxGeometry(0.24, 2.2, 0.24, 2, 0.04), metal);
+      leg.position.set(x, 1.08, z);
+      group.add(leg);
+    }
+  }
+  enableShadows(group);
+  return group;
+}
+
 export interface ClassroomScene {
   readonly group: THREE.Group;
   readonly heroPens: THREE.Group;
@@ -110,51 +148,70 @@ export function createClassroom(): ClassroomScene {
   const group = new THREE.Group();
   group.name = 'classroom';
   const woodTexture = createWoodTexture();
-  const wood = new THREE.MeshStandardMaterial({ map: woodTexture, color: '#b76422', roughness: 0.48, metalness: 0.02 });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(46, 32), new THREE.MeshStandardMaterial({ map: createTileTexture(), color: '#d5caae', roughness: 0.88 }));
+  const wood = new THREE.MeshStandardMaterial({ map: woodTexture, color: '#c2b18d', roughness: 0.56, metalness: 0.01 });
+  const arenaWood = new THREE.MeshStandardMaterial({ map: woodTexture.clone(), color: '#e6c995', roughness: 0.48, metalness: 0.01 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(52, 38), new THREE.MeshStandardMaterial({ map: createTileTexture(), color: '#afa98f', roughness: 0.9 }));
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   group.add(floor);
 
-  const backWall = new THREE.Mesh(new THREE.PlaneGeometry(46, 15), new THREE.MeshStandardMaterial({ color: '#657151', roughness: 0.95 }));
+  const backWall = new THREE.Mesh(new THREE.PlaneGeometry(64, 15), new THREE.MeshStandardMaterial({ color: '#596348', roughness: 0.95 }));
   backWall.position.set(0, 7.5, -15.5);
   group.add(backWall);
 
   const deskPositions: readonly [number, number, number][] = [
-    [-12, -9, 0.08], [-12, -3.2, 0.08], [-12, 7, 0.08],
-    [12, -9, -0.08], [12, -3.2, -0.08], [12, 7, -0.08],
-    [-6, 11.4, 0], [6, 11.4, 0],
+    [-12.5, -6.7, 0.03], [-12.5, 0.2, 0.03], [-12.5, 7.5, 0.03],
+    [12.5, -6.7, -0.03], [12.5, 0.2, -0.03], [12.5, 7.5, -0.03],
+    [-10.2, -12.2, 0], [10.2, -12.2, 0], [-10.5, 14.1, 0], [10.5, 14.1, 0],
   ];
   for (const [x, z, rotation] of deskPositions) {
     const desk = createDesk(wood);
     desk.position.set(x, 0, z);
     desk.rotation.y = rotation;
+    if (z < -10) {
+      desk.scale.set(1.85, 3.35, 1.85);
+    } else {
+      desk.scale.setScalar(1.72);
+    }
     group.add(desk);
   }
 
-  const arena = createDesk(wood);
-  arena.scale.set(1.08, 1, 1.42);
-  arena.position.set(0, 0, 1.8);
+  const arena = createArenaTable(arenaWood);
+  arena.position.set(0, 0, 0.4);
   group.add(arena);
 
-  const boardFrame = new THREE.Mesh(new RoundedBoxGeometry(12.6, 6.2, 0.42, 3, 0.12), wood);
-  boardFrame.position.set(0, 7.3, -15.05);
+  const boardFrame = new THREE.Mesh(new RoundedBoxGeometry(13.8, 5.8, 0.48, 3, 0.12), wood);
+  boardFrame.position.set(0, 5.6, -15.05);
   group.add(boardFrame);
   const boardMaterial = new THREE.MeshStandardMaterial({ map: createBlackboardTexture(''), roughness: 0.96 });
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(11.85, 5.45), boardMaterial);
-  board.position.set(0, 7.3, -14.81);
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(13.05, 5.05), boardMaterial);
+  board.position.set(0, 5.6, -14.79);
   group.add(board);
 
+  const chalkTray = new THREE.Mesh(new RoundedBoxGeometry(7.2, 0.18, 0.5, 2, 0.05), wood);
+  chalkTray.position.set(0, 2.55, -14.55);
+  group.add(chalkTray);
+
   const notebooks = createNotebook();
-  notebooks.position.set(-11.1, 2.5, -3.4);
+  notebooks.position.set(-10.7, 2.5, -11.8);
   notebooks.rotation.y = 0.18;
   group.add(notebooks);
-  const bagBlue = createBackpack('#162d55');
-  bagBlue.position.set(8.1, 0, -10.7);
+  const pencilBox = createPencilBox();
+  pencilBox.position.set(-11.7, 2.55, -11.7);
+  pencilBox.rotation.y = -0.16;
+  group.add(pencilBox);
+  const paper = createLoosePaper();
+  paper.position.set(10.6, 2.53, -11.7);
+  paper.rotation.y = 0.14;
+  group.add(paper);
+  const bagBlue = createBackpack('#182e55');
+  bagBlue.scale.setScalar(1.35);
+  bagBlue.position.set(7.8, 0, -10.1);
   bagBlue.rotation.y = -0.22;
   group.add(bagBlue);
   const bagRed = createBackpack('#611f27');
-  bagRed.position.set(9.3, 0, 3.8);
+  bagRed.scale.setScalar(1.35);
+  bagRed.position.set(9.4, 0, 2.9);
   bagRed.rotation.y = 0.34;
   group.add(bagRed);
 
@@ -162,10 +219,10 @@ export function createClassroom(): ClassroomScene {
   heroPens.name = 'hero-pens';
   const blue = createPen('#128de0');
   blue.rotation.y = -0.35;
-  blue.position.set(-0.35, 2.56, 1.8);
-  const red = createPen('#d53c31');
+  blue.position.set(-0.35, 2.62, 1.15);
+  const red = createPen('#4a8ec7');
   red.rotation.y = 1.15;
-  red.position.set(0.65, 2.58, 1.6);
+  red.position.set(0.65, 2.64, -0.45);
   heroPens.add(blue, red);
   group.add(heroPens);
 
@@ -197,8 +254,8 @@ export function createClassroom(): ClassroomScene {
         redVelocity.add(blueVelocity.clone().multiplyScalar(0.72));
         blueVelocity.multiplyScalar(0.28);
       }
-      const blueOut = Math.abs(blue.position.x) > 3.2 || Math.abs(blue.position.z - 1.8) > 2.2;
-      const redOut = Math.abs(red.position.x) > 3.2 || Math.abs(red.position.z - 1.8) > 2.2;
+      const blueOut = Math.abs(blue.position.x) > 3.9 || Math.abs(blue.position.z - 0.4) > 6.75;
+      const redOut = Math.abs(red.position.x) > 3.9 || Math.abs(red.position.z - 0.4) > 6.75;
       if (blueOut || redOut) {
         fallListener(redOut && !blueOut ? 0 : 1);
         blue.position.copy(blueStart);

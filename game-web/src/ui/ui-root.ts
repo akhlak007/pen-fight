@@ -117,27 +117,22 @@ export class UiRoot {
       return;
     }
 
-    this.#layer.innerHTML = `<header class="top-bar">
-      <div class="brand-chip"><span class="brand-icon">PF</span><span><strong>PEN FIGHT</strong><small>PILOT V6</small></span></div>
+    this.#layer.innerHTML = `<header class="reference-nav">
       <nav aria-label="Game menu">
-        <button class="glass-button" data-action="edit" type="button">${escapeText(state.player.name)}</button>
+        <button class="glass-button nav-secondary" type="button">FRIEND</button>
+        <button class="glass-button instant-button" data-action="play" type="button">INSTANT</button>
+        <button class="glass-button nav-secondary" type="button">COMMUNITY</button>
+        <button class="profile-button" data-action="edit" type="button">${escapeText(state.player.name || 'SIGN IN')}</button>
         <button class="glass-button icon-button" data-action="settings" type="button" aria-label="Settings">☰</button>
       </nav>
     </header>
-    <section class="hero-copy">
-      <p class="eyebrow light">AFTER THE BELL · DESK 05</p>
-      <h1>One desk.<br><em>Two pens.</em><br>No excuses.</h1>
-      <p>Line up the shot, control the power, and flick your rival off the desk.</p>
-      <button class="paper-button primary play-button" type="button"><span>PLAY NOW</span><b>→</b></button>
-      <div class="hint"><kbd>DRAG</kbd><span>to aim</span><i></i><kbd>RELEASE</kbd><span>to flick</span></div>
-    </section>
     <aside class="settings-popover paper" hidden>
       <strong>Desk settings</strong>
       <label><span>Calm camera</span><input data-setting="motion" type="checkbox" ${state.settings.reducedMotion ? 'checked' : ''}></label>
       <button class="text-button" data-action="rename" type="button">Change player name</button>
     </aside>
-    <footer class="room-caption"><span class="live-dot"></span> CLASSROOM 3B <i></i> LOCAL GAME</footer>`;
-    this.#layer.querySelector('.play-button')?.addEventListener('click', this.actions.onPlay);
+    <footer class="reference-brand"><span class="brand-icon">PF</span><span><strong>PEN FIGHT</strong><small>PILOT V6</small></span></footer>`;
+    this.#layer.querySelector('[data-action="play"]')?.addEventListener('click', this.actions.onPlay);
     this.#layer.querySelector('[data-action="edit"]')?.addEventListener('click', this.actions.onEditName);
     this.#layer.querySelector('[data-action="rename"]')?.addEventListener('click', this.actions.onEditName);
     const settings = this.#layer.querySelector<HTMLElement>('.settings-popover');
