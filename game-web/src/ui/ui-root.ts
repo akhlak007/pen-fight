@@ -17,6 +17,7 @@ export interface UiActions {
   onToggleReducedMotion(value: boolean): void;
   onToggleAmbience(value: boolean): void;
   onRematch(): void;
+  onCancelOnline?(): void;
 }
 
 function escapeText(value: string): string {
@@ -454,7 +455,32 @@ export class UiRoot {
           <p class="eyebrow">FRIEND MATCH · LOCAL DESK</p>
           <h1 id="local-setup-title">Choose your rival</h1>
           <p class="local-player-one"><span>PLAYER 1 · BLUE PEN</span><strong>${escapeText(state.player.name)}</strong></p>
-          ${onlineBusy ? `<section class="online-room" aria-live="polite"><span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : 'ONLINE INVITE'}</span>${room ? `<strong class="room-code">${escapeText(room)}</strong><p>Send this link to your friend. They only need to open it.</p><button class="paper-button copy-invite" type="button">Copy invite link</button>` : '<p>Opening a classroom online…</p>'}${this.#online.error ? `<p class="form-error">${escapeText(this.#online.error)}</p>` : ''}</section>` : `<div class="friend-mode-grid"><button class="friend-mode active" data-friend-mode="local" type="button"><strong>Same device</strong><small>Take turns at this desk</small></button><button class="friend-mode" data-friend-mode="online" type="button"><strong>Online invite</strong><small>Each friend uses a device</small></button></div>
+          ${onlineBusy ? `<section class="online-room" aria-live="polite">
+            <span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : 'ONLINE INVITE'}</span>
+            ${this.#online.status === 'error' ? `
+              ${this.#online.error ? `<p class="form-error">${escapeText(this.#online.error)}</p>` : '<p class="form-error">Could not connect to online room.</p>'}
+              <div class="online-buttons">
+                <button class="paper-button retry-online" type="button">Try again</button>
+                <button class="glass-button cancel-online" type="button">Cancel</button>
+              </div>
+            ` : this.#online.status === 'waiting' && room ? `
+              <strong class="room-code">${escapeText(room)}</strong>
+              <p>Send this link to your friend. They only need to open it.</p>
+              <div class="online-buttons">
+                <button class="paper-button copy-invite" type="button">Copy invite link</button>
+                <button class="glass-button cancel-online" type="button">Cancel</button>
+              </div>
+              <p class="waiting-hint">Waiting for friend to join…</p>
+            ` : this.#online.status === 'ready' ? `
+              ${room ? `<strong class="room-code">${escapeText(room)}</strong>` : ''}
+              <p class="online-loading">Both desks ready! Entering match…</p>
+            ` : `
+              <p class="online-loading">Opening a classroom online…</p>
+              <div class="online-buttons">
+                <button class="glass-button cancel-online" type="button">Cancel</button>
+              </div>
+            `}
+          </section>` : `<div class="friend-mode-grid"><button class="friend-mode active" data-friend-mode="local" type="button"><strong>Same device</strong><small>Take turns at this desk</small></button><button class="friend-mode" data-friend-mode="online" type="button"><strong>Online invite</strong><small>Each friend uses a device</small></button></div>
           <form class="local-setup-form">
             <div class="player-count-picker-group">
               <span class="picker-label">Number of players</span>
@@ -510,6 +536,20 @@ export class UiRoot {
       this.#layer.querySelector('.back-button')?.addEventListener('click', goBack);
       this.#layer.querySelector('.copy-invite')?.addEventListener('click', this.actions.onCopyInvite);
       this.#layer.querySelector('.create-online')?.addEventListener('click', this.actions.onCreateOnline);
+      this.#layer.querySelector('.retry-online')?.addEventListener('click', () => {
+        if (room) {
+          this.actions.onJoinOnline(room);
+        } else {
+          this.actions.onCreateOnline();
+        }
+      });
+      this.#layer.querySelector('.cancel-online')?.addEventListener('click', () => {
+        if (this.actions.onCancelOnline) {
+          this.actions.onCancelOnline();
+        } else {
+          this.actions.onBack();
+        }
+      });
       this.#layer.querySelector<HTMLFormElement>('.join-room-form')?.addEventListener('submit', (event) => { event.preventDefault(); const value = this.#layer.querySelector<HTMLInputElement>('#room-code')?.value.trim() ?? ''; if (value) this.actions.onJoinOnline(value); });
       this.#layer.querySelectorAll<HTMLElement>('[data-friend-mode]').forEach((button) => button.addEventListener('click', () => {
         const online = button.dataset.friendMode === 'online';

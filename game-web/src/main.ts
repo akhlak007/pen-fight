@@ -86,9 +86,15 @@ const ui = new UiRoot(store, {
   },
   onCreateOnline() { online.create(store.snapshot.player.name); },
   onJoinOnline(room) { online.join(room, store.snapshot.player.name); },
+  onCancelOnline() {
+    online.close();
+    ui.setOnlineState(online.state);
+  },
   onCopyInvite() {
     const room = online.state.room; if (!room) return;
+    const hasP2P = new URL(location.href).searchParams.has('p2p');
     const invite = new URL(location.href); invite.search = ''; invite.searchParams.set('room', room);
+    if (hasP2P) invite.searchParams.set('p2p', '1');
     if (navigator.share) void navigator.share({ title: 'Pen Fight', text: 'Fight me in Pen Fight!', url: invite.toString() }).catch(() => navigator.clipboard?.writeText(invite.toString()));
     else void navigator.clipboard?.writeText(invite.toString());
   },
