@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import type { MatchMode } from '../app/app-state';
+import type { ArenaAction } from '../game/solo-turn-controller';
+import type { ArenaSnapshot } from '../network/protocol';
 import { createClassroom, type ClassroomScene } from '../scene/classroom';
 
 export class GameRenderer {
@@ -12,8 +15,14 @@ export class GameRenderer {
   #target = new THREE.Vector3(0, 1.7, 0.5);
   readonly #timer = new THREE.Timer();
   readonly #raycaster = new THREE.Raycaster();
+  readonly #tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2.58);
+  readonly #pointerNdc = new THREE.Vector2();
+  readonly #tablePointScratch = new THREE.Vector3();
   #matchEnabled = false;
-  #dragStart: { x: number; y: number } | null = null;
+  #suspended = false;
+  #dragStart: { point: THREE.Vector3; pointerId: number } | null = null;
+  #keyboardAim: { x: number; y: number } | null = null;
+  #inputListener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -34,32 +43,63 @@ export class GameRenderer {
     this.#timer.connect(document);
     this.#resize();
     canvas.addEventListener('pointerdown', (event) => {
-      if (!this.#matchEnabled) return;
-      const rect = canvas.getBoundingClientRect();
-      this.#raycaster.setFromCamera(new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      ), this.#camera);
-      if (!this.#classroom.canGrab(this.#raycaster)) return;
-      this.#dragStart = { x: event.clientX, y: event.clientY };
+      if (!this.#matchEnabled || this.#suspended || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0) || this.#dragStart) return;
+      const point = this.#tablePoint(event.clientX, event.clientY);
+      if (!point || !this.#classroom.canGrab(this.#raycaster)) return;
+      this.#keyboardAim = null;
+      this.#dragStart = { point: point.clone(), pointerId: event.pointerId };
+      canvas.classList.add('is-aiming');
       canvas.setPointerCapture(event.pointerId);
     });
     canvas.addEventListener('pointermove', (event) => {
-      if (!this.#dragStart || !this.#matchEnabled) return;
-      this.#classroom.aim(event.clientX - this.#dragStart.x, event.clientY - this.#dragStart.y);
+      if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
+      const point = this.#tablePoint(event.clientX, event.clientY);
+      if (point) this.#aim(point.x - this.#dragStart.point.x, point.z - this.#dragStart.point.z);
     });
     canvas.addEventListener('pointerup', (event) => {
-      if (!this.#dragStart || !this.#matchEnabled) return;
-      const distance = Math.hypot(event.clientX - this.#dragStart.x, event.clientY - this.#dragStart.y);
-      if (distance >= 16) this.#classroom.flick(distance * 0.0018);
-      else this.#classroom.cancelAim();
-      this.#dragStart = null;
-      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
+      const point = this.#tablePoint(event.clientX, event.clientY);
+      const distance = point ? point.distanceTo(this.#dragStart.point) : 0;
+      if (point && distance >= 0.12) {
+        this.#aim(point.x - this.#dragStart.point.x, point.z - this.#dragStart.point.z);
+        this.#flick();
+        this.#finishDrag();
+      } else {
+        this.#cancelDrag();
+      }
     });
     canvas.addEventListener('pointercancel', (event) => {
-      this.#classroom.cancelAim();
-      this.#dragStart = null;
-      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      if (this.#dragStart && event.pointerId === this.#dragStart.pointerId) this.#cancelDrag();
+    });
+    canvas.addEventListener('keydown', (event) => {
+      if (!this.#matchEnabled || this.#suspended) return;
+      const directions: Partial<Record<string, readonly [number, number]>> = {
+        ArrowLeft: [1, 0],
+        ArrowRight: [-1, 0],
+        ArrowUp: [0, 1],
+        ArrowDown: [0, -1],
+      };
+      const direction = directions[event.key];
+      if (direction) {
+        event.preventDefault();
+        const previousLength = this.#keyboardAim ? Math.hypot(this.#keyboardAim.x, this.#keyboardAim.y) : 0.45;
+        const nextLength = Math.min(2.4, previousLength + 0.3);
+        const nextAim = { x: direction[0] * nextLength, y: direction[1] * nextLength };
+        if (this.#aim(nextAim.x, nextAim.y)) {
+          this.#keyboardAim = nextAim;
+          canvas.classList.add('is-aiming');
+        }
+      } else if ((event.key === ' ' || event.key === 'Enter') && this.#keyboardAim) {
+        event.preventDefault();
+        this.#flick();
+        this.#keyboardAim = null;
+        canvas.classList.remove('is-aiming');
+      } else if (event.key === 'Escape' && this.#keyboardAim) {
+        event.preventDefault();
+        this.#cancelAim();
+        this.#keyboardAim = null;
+        canvas.classList.remove('is-aiming');
+      }
     });
   }
 
@@ -67,7 +107,8 @@ export class GameRenderer {
     if (this.#frame) return;
     this.#renderer.setAnimationLoop((time) => {
       this.#timer.update(time);
-      this.#classroom.update(time, Math.min(this.#timer.getDelta(), 0.05), this.#reducedMotion);
+      const delta = Math.min(this.#timer.getDelta(), 0.05);
+      if (!this.#suspended) this.#classroom.update(time, delta, this.#reducedMotion);
       if (!this.#reducedMotion) {
         this.#camera.position.x = Math.sin(time * 0.00008) * 0.38;
         this.#camera.lookAt(this.#target);
@@ -78,15 +119,36 @@ export class GameRenderer {
   }
 
   setPlayerName(name: string): void { this.#classroom.updateBoard(name); }
-  setBoardState(name: string, score: readonly [number, number]): void { this.#classroom.updateBoard(name, score); }
+  setBoardState(name: string, opponentName: string, score: readonly [number, number]): void {
+    this.#classroom.updateBoard(name, opponentName, score);
+  }
   setReducedMotion(value: boolean): void { this.#reducedMotion = value; }
   setPointListener(listener: (winner: 0 | 1) => void): void { this.#classroom.setFallListener(listener); }
   setTurnListener(listener: (player: 0 | 1) => void): void { this.#classroom.setTurnListener(listener); }
-  setMatchMode(mode: 'quick' | 'practice'): void { this.#classroom.setMatchMode(mode); }
+  setAimListener(listener: (power: number) => void): void { this.#classroom.setAimListener(listener); }
+  setRoundListener(listener: (message: string | null) => void): void { this.#classroom.setRoundListener(listener); }
+  setActionListener(listener: (action: ArenaAction) => void): void { this.#classroom.setActionListener(listener); }
+  setMatchMode(mode: MatchMode): void { this.#classroom.setMatchMode(mode); }
+  setReplica(value: boolean): void { this.#classroom.setReplica(value); }
+  setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
+  applyArenaSnapshot(snapshot: ArenaSnapshot): void { this.#classroom.applyArenaSnapshot(snapshot); }
+  getArenaSnapshot(seq: number, score: readonly [number, number]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
+  remoteInput(action: 'aim' | 'flick' | 'cancel', x?: number, y?: number): void {
+    if (action === 'aim' && x !== undefined && y !== undefined) this.#classroom.aim(x, y);
+    else if (action === 'flick') this.#classroom.flick();
+    else if (action === 'cancel') this.#classroom.cancelAim();
+  }
+  setSuspended(value: boolean): void {
+    this.#suspended = value;
+    if (value) this.#cancelDrag();
+  }
   setMatchEnabled(value: boolean): void {
     this.#matchEnabled = value;
     this.canvas.style.cursor = value ? 'grab' : 'default';
-    if (!value) this.#classroom.resetPens();
+    if (!value) {
+      this.#cancelDrag();
+      this.#classroom.resetPens();
+    }
   }
 
   focusArena(): void {
@@ -127,4 +189,31 @@ export class GameRenderer {
     this.#camera.fov = width / height < 0.8 ? 58 : 40;
     this.#camera.updateProjectionMatrix();
   }
+
+  #tablePoint(clientX: number, clientY: number): THREE.Vector3 | null {
+    const rect = this.canvas.getBoundingClientRect();
+    this.#pointerNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.#raycaster.setFromCamera(this.#pointerNdc, this.#camera);
+    return this.#raycaster.ray.intersectPlane(this.#tablePlane, this.#tablePointScratch);
+  }
+
+  #finishDrag(): void {
+    const pointerId = this.#dragStart?.pointerId;
+    this.#dragStart = null;
+    this.canvas.classList.remove('is-aiming');
+    if (pointerId !== undefined && this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+  }
+
+  #cancelDrag(): void {
+    if (this.#dragStart || this.#keyboardAim) this.#cancelAim();
+    this.#keyboardAim = null;
+    this.#finishDrag();
+  }
+
+  #aim(x: number, y: number): boolean { return this.#inputListener?.('aim', x, y) ?? this.#classroom.aim(x, y); }
+  #flick(): boolean { return this.#inputListener?.('flick') ?? this.#classroom.flick(); }
+  #cancelAim(): void { if (!this.#inputListener?.('cancel')) this.#classroom.cancelAim(); }
 }

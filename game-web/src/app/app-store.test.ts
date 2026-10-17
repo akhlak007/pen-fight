@@ -35,6 +35,39 @@ describe('AppStore', () => {
     expect(store.snapshot.phase).toBe('booting');
   });
 
+  it('opens and exits local friend setup from home', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+    expect(store.snapshot.phase).toBe('settingUpLocal');
+    store.transition('home');
+    expect(store.snapshot.phase).toBe('home');
+  });
+
+  it('starts a local match with a trimmed second-player name', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startLocalMatch('  Priya  ');
+
+    expect(store.snapshot.phase).toBe('match');
+    expect(store.snapshot.match).toMatchObject({
+      mode: 'local',
+      rivalName: 'Priya',
+      currentPlayer: 0,
+      score: [0, 0],
+    });
+  });
+
+  it('rejects a blank second-player name without leaving setup', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+
+    expect(() => store.startLocalMatch('   ')).toThrow(/second player name/i);
+    expect(store.snapshot.phase).toBe('settingUpLocal');
+  });
+
   it('pauses a match while hidden and resumes only visibility pauses', () => {
     const store = new AppStore();
     store.transition('home');
@@ -78,6 +111,23 @@ describe('match rules', () => {
     store.recordPoint(0);
     expect(store.snapshot.match?.score).toEqual([0, 0]);
     expect(store.snapshot.phase).toBe('match');
+  });
+
+  it('scores local matches and preserves the rival name for a rematch', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startLocalMatch('Priya');
+    store.recordPoint(1);
+    store.recordPoint(1);
+    store.recordPoint(1);
+
+    expect(store.snapshot.phase).toBe('result');
+    expect(store.snapshot.match?.score).toEqual([0, 3]);
+    expect(store.snapshot.match?.rivalName).toBe('Priya');
+
+    store.startMatch('local', 'Priya');
+    expect(store.snapshot.match).toMatchObject({ mode: 'local', rivalName: 'Priya', score: [0, 0] });
   });
 });
 

@@ -22,6 +22,31 @@ describe('SoloTurnController', () => {
     expect(turns.phase).toBe('player');
   });
 
+  it('alternates human players without scheduling AI in local mode', () => {
+    const turns = new SoloTurnController();
+    turns.begin('local');
+    expect(turns.activePlayer).toBe(0);
+
+    expect(turns.playerFlicked()).toBe(true);
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.phase).toBe('player');
+    expect(turns.activePlayer).toBe(1);
+    expect(turns.tick(1, 0)).toBeNull();
+
+    expect(turns.playerFlicked()).toBe(true);
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(0);
+  });
+
+  it('hands over a stopped shot promptly and keeps the AI pause brief', () => {
+    const turns = new SoloTurnController();
+    turns.begin('quick');
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBeNull();
+    expect(turns.phase).toBe('aiWaiting');
+    expect(turns.tick(0.51, 0)).toBe('aiFlick');
+  });
+
   it('locks input while a pen is falling and resets after the point', () => {
     const turns = new SoloTurnController();
     turns.begin('quick');
@@ -29,5 +54,31 @@ describe('SoloTurnController', () => {
     expect(turns.playerFlicked()).toBe(false);
     turns.finishPoint();
     expect(turns.playerFlicked()).toBe(true);
+    expect(turns.activePlayer).toBe(0);
+  });
+
+  it('returns local control to player 1 after a point', () => {
+    const turns = new SoloTurnController();
+    turns.begin('local');
+    expect(turns.playerFlicked()).toBe(true);
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(1);
+    turns.startFall();
+    turns.finishPoint();
+    expect(turns.phase).toBe('player');
+    expect(turns.activePlayer).toBe(0);
+  });
+
+  it('rejects extra player flicks throughout motion and the AI turn', () => {
+    const turns = new SoloTurnController();
+    turns.begin('quick');
+    expect(turns.playerFlicked()).toBe(true);
+    expect(turns.playerFlicked()).toBe(false);
+    turns.tick(0.43, 0);
+    expect(turns.phase).toBe('aiWaiting');
+    expect(turns.playerFlicked()).toBe(false);
+    turns.tick(0.73, 0);
+    expect(turns.phase).toBe('aiMoving');
+    expect(turns.playerFlicked()).toBe(false);
   });
 });

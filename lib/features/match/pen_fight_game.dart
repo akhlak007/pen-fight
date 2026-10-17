@@ -307,7 +307,7 @@ class PenFightGame extends FlameGame {
   }
 
   String _name(int player) => player == 0
-      ? 'Akhlaq'
+      ? settings.playerName
       : mode == GameMode.solo
       ? 'Priya'
       : 'Player 2';

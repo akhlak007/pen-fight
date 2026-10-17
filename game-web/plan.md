@@ -1,5 +1,9 @@
 # Pen Fight Local and Online Friend Implementation Plan
 
+## Implementation Status — Complete
+
+Implemented and verified on 2026-10-17. The app now supports same-device turns and cross-device invite links, with a host-authoritative WebSocket room, reconnect tokens, synchronized snapshots, automatic URL joining, and one-command development/production startup. Verification covers unit, server integration, responsive UI, and a two-browser online turn handoff.
+
 ## Objective
 
 Finish same-device two-player mode, relocate the match HUD below the blackboard, and add host-authoritative online invite matches backed by a lightweight Node.js WebSocket room server.

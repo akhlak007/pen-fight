@@ -76,7 +76,11 @@ export function createTileTexture(): THREE.CanvasTexture {
   return textureFromCanvas(canvas, 7, 6);
 }
 
-export function createBlackboardTexture(playerName: string, score: readonly [number, number] = [0, 0]): THREE.CanvasTexture {
+export function createBlackboardTexture(
+  playerName: string,
+  opponentName = 'AI rival',
+  score: readonly [number, number] = [0, 0],
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
   canvas.height = 460;
@@ -104,15 +108,19 @@ export function createBlackboardTexture(playerName: string, score: readonly [num
   context.fillText('PEN FIGHT', 105, 205);
   context.beginPath(); context.moveTo(100, 218); context.lineTo(405, 218); context.stroke();
   context.font = '34px "Comic Sans MS", cursive';
-  context.fillText(`${playerName || 'New challenger'}     ${score[0]}`, 105, 285);
-  context.fillText(`AI rival             ${score[1]}`, 105, 350);
+  context.fillText(playerName || 'New challenger', 105, 285, 220);
+  context.fillText(opponentName || 'AI rival', 105, 350, 220);
+  context.textAlign = 'right';
+  context.fillText(String(score[0]), 380, 285);
+  context.fillText(String(score[1]), 380, 350);
+  context.textAlign = 'left';
   context.font = '24px "Comic Sans MS", cursive';
   context.fillText('Std. 9 - A', 42, 45);
   context.fillText('Sub : Maths', 42, 78);
   context.fillText('Date : 15 / 10', 805, 43);
   context.fillText('H.W.', 760, 130);
   context.fillText('Ch. 4 Q. 1 - 5', 760, 168);
-  context.fillText('Map of India', 760, 206);
+  context.fillText('Map of Bangladesh', 760, 206);
   context.fillText('Remember: Aim', 760, 372);
   context.strokeStyle = '#e6e2bf';
   context.lineWidth = 4;

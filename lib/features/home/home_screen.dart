@@ -16,6 +16,19 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool _namePromptScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_namePromptScheduled && widget.settings.playerName.isEmpty) {
+      _namePromptScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showNameDialog(required: true);
+      });
+    }
+  }
+
   void _start(GameMode mode) {
     widget.settings.setLastMode(mode == GameMode.local ? 'local' : 'solo');
     Navigator.of(context).push(
@@ -115,12 +128,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               child: _NotebookContent(
                                 wide: wide,
+                                playerName: widget.settings.playerName,
                                 wins: widget.settings.soloWins,
                                 localScore: widget.settings.localScore,
                                 onSolo: () => _start(GameMode.solo),
                                 onLocal: () => _start(GameMode.local),
                                 onFriend: () => _comingSoon('Friend match'),
                                 onInstant: () => _comingSoon('Instant match'),
+                                onEditName: () => _showNameDialog(),
                               ),
                             ),
                           ),
@@ -230,6 +245,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _showNameDialog({bool required = false}) async {
+    final name = await showDialog<String>(
+      context: context,
+      barrierDismissible: !required,
+      builder: (_) => _NameDialog(
+        required: required,
+        initialName: widget.settings.playerName,
+      ),
+    );
+    if (name != null) await widget.settings.setPlayerName(name);
+  }
+
   Future<void> _confirmReset(BuildContext sheetContext) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -252,6 +279,118 @@ class _HomeScreenState extends State<HomeScreen> {
       await widget.settings.resetProgress();
       if (sheetContext.mounted) Navigator.pop(sheetContext);
     }
+  }
+}
+
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({required this.required, required this.initialName});
+
+  final bool required;
+  final String initialName;
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.pop(context, _controller.text.trim());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !widget.required,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: NotebookPaper(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.required ? 'CLAIM YOUR SEAT' : 'CHANGE YOUR NAME',
+                      style: Theme.of(context).textTheme.headlineLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'What should we write on your desk?',
+                      style: TextStyle(fontSize: 19, color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 18),
+                    TextFormField(
+                      key: const Key('player-name-field'),
+                      controller: _controller,
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.words,
+                      maxLength: 18,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'YOUR NAME',
+                        hintText: 'Akhlaq',
+                        border: OutlineInputBorder(),
+                        filled: true,
+                        fillColor: Color(0xaaffffff),
+                      ),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? 'Write your name first'
+                          : null,
+                      onFieldSubmitted: (_) => _submit(),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        if (!widget.required) ...[
+                          Expanded(
+                            child: InkButton(
+                              label: 'CANCEL',
+                              secondary: true,
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                          child: InkButton(
+                            label: widget.required
+                                ? 'TAKE MY SEAT'
+                                : 'SAVE NAME',
+                            onPressed: _submit,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -326,25 +465,34 @@ class _TopNav extends StatelessWidget {
 class _NotebookContent extends StatelessWidget {
   const _NotebookContent({
     required this.wide,
+    required this.playerName,
     required this.wins,
     required this.localScore,
     required this.onSolo,
     required this.onLocal,
     required this.onFriend,
     required this.onInstant,
+    required this.onEditName,
   });
 
   final bool wide;
+  final String playerName;
   final int wins;
   final List<int>? localScore;
   final VoidCallback onSolo;
   final VoidCallback onLocal;
   final VoidCallback onFriend;
   final VoidCallback onInstant;
+  final VoidCallback onEditName;
 
   @override
   Widget build(BuildContext context) {
-    final left = _Journey(wins: wins, onSolo: onSolo);
+    final left = _Journey(
+      playerName: playerName,
+      wins: wins,
+      onSolo: onSolo,
+      onEditName: onEditName,
+    );
     final right = _Modes(
       localScore: localScore,
       onLocal: onLocal,
@@ -391,20 +539,45 @@ class _NotebookContent extends StatelessWidget {
 }
 
 class _Journey extends StatelessWidget {
-  const _Journey({required this.wins, required this.onSolo});
+  const _Journey({
+    required this.playerName,
+    required this.wins,
+    required this.onSolo,
+    required this.onEditName,
+  });
 
+  final String playerName;
   final int wins;
   final VoidCallback onSolo;
+  final VoidCallback onEditName;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'AKHLAK',
-          style: Theme.of(context).textTheme.displayLarge
-              ?.copyWith(fontSize: 42),
+        InkWell(
+          key: const Key('edit-player-name'),
+          onTap: onEditName,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8, bottom: 2),
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    playerName.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.displayLarge
+                        ?.copyWith(fontSize: 42),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.edit_outlined, color: AppColors.ink, size: 22),
+              ],
+            ),
+          ),
         ),
         Text(
           '$wins of 12 pens · ${12 - wins} to the Trimax',
@@ -613,14 +786,20 @@ class _SectionTitle extends StatelessWidget {
     return Row(
       children: [
         const Expanded(child: Divider(color: AppColors.rule)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 25,
-              color: AppColors.ink,
-              letterSpacing: 1,
+        Flexible(
+          flex: 5,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 25,
+                color: AppColors.ink,
+                letterSpacing: 1,
+              ),
             ),
           ),
         ),

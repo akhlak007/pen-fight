@@ -2,6 +2,7 @@ export type AppPhase =
   | 'booting'
   | 'naming'
   | 'home'
+  | 'settingUpLocal'
   | 'selectingMode'
   | 'match'
   | 'paused'
@@ -10,6 +11,7 @@ export type AppPhase =
 
 export type GraphicsProfile = 'auto' | 'ultra' | 'high' | 'performance';
 export type PauseReason = 'manual' | 'visibility';
+export type MatchMode = 'quick' | 'practice' | 'local' | 'online';
 
 export interface AppSettings {
   readonly music: boolean;
@@ -33,7 +35,8 @@ export interface LoadProgress {
 export interface MatchSnapshot {
   readonly score: readonly [number, number];
   readonly currentPlayer: 0 | 1;
-  readonly mode: 'quick' | 'practice';
+  readonly mode: MatchMode;
+  readonly rivalName?: string;
   readonly lastScorer?: 0 | 1;
 }
 

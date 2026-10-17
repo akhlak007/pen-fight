@@ -8,6 +8,7 @@ class SettingsController extends ChangeNotifier {
   static const _soundKey = 'settings.sound';
   static const _hapticsKey = 'settings.haptics';
   static const _motionKey = 'settings.reducedMotion';
+  static const _playerNameKey = 'profile.playerName';
   static const _winsKey = 'progress.soloWins';
   static const _localScoreKey = 'match.localScore';
   static const _localNamesKey = 'match.localNames';
@@ -17,6 +18,7 @@ class SettingsController extends ChangeNotifier {
   bool sound = true;
   bool haptics = true;
   bool reducedMotion = false;
+  String playerName = '';
   int soloWins = 0;
   List<int>? localScore;
   List<String> localNames = const ['Akhlaq', 'Player 2'];
@@ -32,6 +34,7 @@ class SettingsController extends ChangeNotifier {
     sound = prefs.getBool(_soundKey) ?? true;
     haptics = prefs.getBool(_hapticsKey) ?? true;
     reducedMotion = prefs.getBool(_motionKey) ?? false;
+    playerName = (prefs.getString(_playerNameKey) ?? '').trim();
     soloWins = (prefs.getInt(_winsKey) ?? 0).clamp(0, 12);
     lastMode = switch (prefs.getString(_lastModeKey)) {
       'local' => 'local',
@@ -66,6 +69,15 @@ class SettingsController extends ChangeNotifier {
       _setBool(_hapticsKey, value, () => haptics = value);
   Future<void> setReducedMotion(bool value) =>
       _setBool(_motionKey, value, () => reducedMotion = value);
+
+  Future<void> setPlayerName(String value) async {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+    playerName = trimmed;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_playerNameKey, playerName);
+  }
 
   Future<void> recordSoloWin() async {
     soloWins = (soloWins + 1).clamp(0, 12);

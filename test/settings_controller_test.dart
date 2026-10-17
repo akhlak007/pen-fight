@@ -28,4 +28,15 @@ void main() {
     expect(reloaded.localScore, [1, 2]);
     expect(reloaded.lastMode, 'local');
   });
+
+  test('player name is trimmed and survives reload', () async {
+    SharedPreferences.setMockInitialValues({});
+    final first = SettingsController();
+    await first.load();
+    await first.setPlayerName('  Riya  ');
+
+    final reloaded = SettingsController();
+    await reloaded.load();
+    expect(reloaded.playerName, 'Riya');
+  });
 }

@@ -5,5 +5,6 @@ test('opens the Pen Fight application shell', async ({ page }) => {
 
   await expect(page.getByRole('main', { name: 'Pen Fight game' })).toBeVisible();
   await expect(page.getByLabel('3D classroom')).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'What should we write on the board?' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Welcome to Pen Fight' })).toBeVisible();
+  await expect(page.getByLabel('Your name')).toBeVisible();
 });

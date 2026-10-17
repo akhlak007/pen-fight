@@ -1,7 +1,18 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { SoloTurnController } from '../game/solo-turn-controller';
-import { AI_CORNER, capsuleContact, isOutsideTable, knockoutWinner, PLAYER_CORNER, resolveEqualMassCollision } from '../game/pen-rules';
+import type { MatchMode } from '../app/app-state';
+import type { ArenaSnapshot } from '../network/protocol';
+import { type ArenaAction, SoloTurnController } from '../game/solo-turn-controller';
+import {
+  AI_CORNER,
+  assistedDirection,
+  capsuleContact,
+  computeFlickAim,
+  knockoutWinner,
+  penHasFallen,
+  PLAYER_CORNER,
+  resolveEqualMassCollision,
+} from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
 
 const woodGeometry = new RoundedBoxGeometry(5.8, 0.34, 2.2, 3, 0.1);
@@ -67,6 +78,12 @@ function createPen(color = '#137cd1'): THREE.Group {
   clip.position.set(-1.32, 0.14, 0);
   group.add(clip);
   enableShadows(group);
+  const hitTarget = new THREE.Mesh(
+    new THREE.BoxGeometry(4.3, 0.72, 1.05),
+    new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
+  );
+  hitTarget.name = 'pen-pickup-target';
+  group.add(hitTarget);
   return group;
 }
 
@@ -119,16 +136,52 @@ function createLoosePaper(): THREE.Group {
 
 function createArenaTable(material: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  const top = new THREE.Mesh(new RoundedBoxGeometry(8.25, 0.42, 14.1, 4, 0.1), material);
+  const top = new THREE.Mesh(new RoundedBoxGeometry(9.2, 0.46, 12.85, 5, 0.16), material);
   top.position.y = 2.32;
   group.add(top);
-  const metal = new THREE.MeshStandardMaterial({ color: '#11100e', metalness: 0.76, roughness: 0.32 });
-  for (const x of [-3.15, 3.15]) {
-    for (const z of [-5.85, 5.85]) {
-      const leg = new THREE.Mesh(new RoundedBoxGeometry(0.24, 2.2, 0.24, 2, 0.04), metal);
+  const apronMaterial = new THREE.MeshStandardMaterial({ color: '#4b2c18', roughness: 0.62, metalness: 0.03 });
+  const frontApron = new THREE.Mesh(new RoundedBoxGeometry(8.65, 0.55, 0.2, 3, 0.05), apronMaterial);
+  frontApron.position.set(0, 2.02, 6.18);
+  const backApron = frontApron.clone();
+  backApron.position.z = -6.18;
+  const sideApron = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, 12.15, 3, 0.05), apronMaterial);
+  sideApron.position.set(4.35, 2.02, 0);
+  const otherSideApron = sideApron.clone();
+  otherSideApron.position.x = -4.35;
+  group.add(frontApron, backApron, sideApron, otherSideApron);
+
+  const metal = new THREE.MeshStandardMaterial({ color: '#17191a', metalness: 0.8, roughness: 0.27 });
+  for (const x of [-3.55, 3.55]) {
+    for (const z of [-5.05, 5.05]) {
+      const leg = new THREE.Mesh(new RoundedBoxGeometry(0.27, 2.2, 0.27, 2, 0.05), metal);
       leg.position.set(x, 1.08, z);
       group.add(leg);
     }
+  }
+  const crossbar = new THREE.Mesh(new RoundedBoxGeometry(7.25, 0.16, 0.16, 2, 0.04), metal);
+  crossbar.position.set(0, 0.72, 0);
+  group.add(crossbar);
+
+  const marking = new THREE.MeshStandardMaterial({ color: '#f1dfad', roughness: 0.82, transparent: true, opacity: 0.72 });
+  const accent = new THREE.MeshStandardMaterial({ color: '#ca512b', roughness: 0.78, transparent: true, opacity: 0.82 });
+  const addStrip = (width: number, depth: number, x: number, z: number, stripMaterial = marking) => {
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), stripMaterial);
+    strip.rotation.x = -Math.PI / 2;
+    strip.position.set(x, 2.558, z);
+    group.add(strip);
+  };
+  addStrip(0.055, 11.7, 0, 0, accent);
+  addStrip(8.5, 0.045, 0, 0, marking);
+  addStrip(8.5, 0.045, 0, -5.82, marking);
+  addStrip(8.5, 0.045, 0, 5.82, marking);
+  addStrip(0.045, 11.68, -4.25, 0, marking);
+  addStrip(0.045, 11.68, 4.25, 0, marking);
+
+  for (const [x, z] of [[-3.72, 5.25], [3.72, -5.25]] as const) {
+    const zone = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.48, 48), accent);
+    zone.rotation.x = -Math.PI / 2;
+    zone.position.set(x, 2.562, z);
+    group.add(zone);
   }
   enableShadows(group);
   return group;
@@ -137,20 +190,27 @@ function createArenaTable(material: THREE.Material): THREE.Group {
 export interface ClassroomScene {
   readonly group: THREE.Group;
   readonly heroPens: THREE.Group;
-  updateBoard(playerName: string, score?: readonly [number, number]): void;
+  updateBoard(playerName: string, opponentName?: string, score?: readonly [number, number]): void;
   update(time: number, delta: number, reducedMotion: boolean): void;
-  aim(deltaX: number, pull: number): void;
-  flick(power: number): void;
+  aim(deltaX: number, deltaY: number): boolean;
+  flick(): boolean;
   cancelAim(): void;
   resetPens(): void;
   canGrab(raycaster: THREE.Raycaster): boolean;
   setFallListener(listener: (winner: 0 | 1) => void): void;
   setTurnListener(listener: (player: 0 | 1) => void): void;
-  setMatchMode(mode: 'quick' | 'practice'): void;
+  setAimListener(listener: (power: number) => void): void;
+  setRoundListener(listener: (message: string | null) => void): void;
+  setActionListener(listener: (action: ArenaAction) => void): void;
+  setMatchMode(mode: MatchMode): void;
+  getArenaSnapshot(seq: number, score: readonly [number, number]): ArenaSnapshot;
+  applyArenaSnapshot(snapshot: ArenaSnapshot): void;
+  setReplica(value: boolean): void;
 }
 
 export function createClassroom(): ClassroomScene {
   const group = new THREE.Group();
+  let replica = false;
   group.name = 'classroom';
   const woodTexture = createWoodTexture();
   const wood = new THREE.MeshStandardMaterial({ map: woodTexture, color: '#c2b18d', roughness: 0.56, metalness: 0.01 });
@@ -225,7 +285,7 @@ export function createClassroom(): ClassroomScene {
   const blue = createPen('#128de0');
   blue.rotation.y = 1.08;
   blue.position.set(PLAYER_CORNER.x, 2.62, PLAYER_CORNER.z);
-  const red = createPen('#4a8ec7');
+  const red = createPen('#d94f35');
   red.rotation.y = -2.05;
   red.position.set(AI_CORNER.x, 2.64, AI_CORNER.z);
   heroPens.add(blue, red);
@@ -236,10 +296,25 @@ export function createClassroom(): ClassroomScene {
   const blueVelocity = new THREE.Vector2();
   const redVelocity = new THREE.Vector2();
   const turns = new SoloTurnController();
+  let matchMode: MatchMode = 'quick';
   let shotAngle = 1.08;
+  let aimPower = 0;
+  const aimOrigin = blueStart.clone();
+  let aimOriginAngle = blue.rotation.y;
+  let aimActive = false;
+  let blueAngularVelocity = 0;
+  let redAngularVelocity = 0;
   let fallListener: (winner: 0 | 1) => void = () => undefined;
   let turnListener: (player: 0 | 1) => void = () => undefined;
-  let falling: { pens: readonly THREE.Group[]; winner: 0 | 1 | null; elapsed: number } | null = null;
+  let aimListener: (power: number) => void = () => undefined;
+  let roundListener: (message: string | null) => void = () => undefined;
+  let actionListener: (action: ArenaAction) => void = () => undefined;
+  let falling: {
+    pens: readonly THREE.Group[];
+    winner: 0 | 1 | null;
+    elapsed: number;
+    scored: boolean;
+  } | null = null;
 
   const aimGeometry = new THREE.BufferGeometry();
   const aimLine = new THREE.Line(
@@ -247,7 +322,24 @@ export function createClassroom(): ClassroomScene {
     new THREE.LineBasicMaterial({ color: '#f5d34f', transparent: true, opacity: 0.92 }),
   );
   aimLine.visible = false;
-  group.add(aimLine);
+  const aimHead = new THREE.Mesh(
+    new THREE.ConeGeometry(0.16, 0.42, 12),
+    new THREE.MeshBasicMaterial({ color: '#f5d34f', transparent: true, opacity: 0.94 }),
+  );
+  aimHead.visible = false;
+  group.add(aimLine, aimHead);
+
+  const turnRingMaterial = new THREE.MeshBasicMaterial({
+    color: '#37aaff',
+    transparent: true,
+    opacity: 0.74,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const turnRing = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.43, 48), turnRingMaterial);
+  turnRing.rotation.x = -Math.PI / 2;
+  turnRing.position.y = 2.568;
+  group.add(turnRing);
 
   function resetPenPositions(): void {
     blue.position.copy(blueStart);
@@ -256,7 +348,15 @@ export function createClassroom(): ClassroomScene {
     red.rotation.set(0, -2.05, 0);
     blueVelocity.set(0, 0);
     redVelocity.set(0, 0);
+    blueAngularVelocity = 0;
+    redAngularVelocity = 0;
+    aimPower = 0;
+    aimOrigin.copy(blueStart);
+    aimOriginAngle = 1.08;
+    aimActive = false;
+    aimListener(0);
     aimLine.visible = false;
+    aimHead.visible = false;
   }
 
   function launchAi(time: number): void {
@@ -265,46 +365,83 @@ export function createClassroom(): ClassroomScene {
     const error = Math.sin(time * 0.0037) * 0.14;
     const angle = Math.atan2(-dz, dx) + error;
     const distance = Math.hypot(dx, dz);
-    const strength = THREE.MathUtils.clamp(distance * 0.92, 7.2, 11.2);
+    const strength = THREE.MathUtils.clamp(distance * 1.2, 9.6, 14.2);
     red.rotation.y = angle;
     redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
+    redAngularVelocity = error * 1.8;
+    actionListener('aiMoving');
     turnListener(1);
+  }
+
+  function activeHumanPen(): THREE.Group {
+    return turns.activePlayer === 0 ? blue : red;
+  }
+
+  function inactiveHumanPen(): THREE.Group {
+    return turns.activePlayer === 0 ? red : blue;
+  }
+
+  function activeHumanVelocity(): THREE.Vector2 {
+    return turns.activePlayer === 0 ? blueVelocity : redVelocity;
+  }
+
+  function stopActiveHumanSpin(): void {
+    if (turns.activePlayer === 0) blueAngularVelocity = 0;
+    else redAngularVelocity = 0;
   }
 
   return {
     group,
     heroPens,
-    updateBoard(playerName: string, score: readonly [number, number] = [0, 0]) {
+    updateBoard(playerName: string, opponentName = 'AI rival', score: readonly [number, number] = [0, 0]) {
       const previous = boardMaterial.map;
-      boardMaterial.map = createBlackboardTexture(playerName, score);
+      boardMaterial.map = createBlackboardTexture(playerName, opponentName, score);
       boardMaterial.needsUpdate = true;
       previous?.dispose();
     },
     update(time: number, delta: number, reducedMotion: boolean) {
       if (!reducedMotion) bagBlue.rotation.z = Math.sin(time * 0.00035) * 0.008;
+      if (replica) return;
       if (falling) {
-        falling.elapsed += delta;
-        for (const pen of falling.pens) {
+        const fallState = falling;
+        turnRing.visible = false;
+        fallState.elapsed += delta;
+        for (const [index, pen] of fallState.pens.entries()) {
           pen.position.y -= delta * 5.6;
           pen.rotation.x += delta * 5;
-          pen.rotation.z += delta * 3.2;
+          pen.rotation.z += delta * (index % 2 === 0 ? 3.2 : -3.2);
         }
-        if (falling.elapsed >= 0.72) {
-          const winner = falling.winner;
+        if (!fallState.scored && fallState.elapsed >= 0.72) {
+          fallState.scored = true;
+          if (fallState.winner !== null) fallListener(fallState.winner);
+          if (falling !== fallState) return;
+        }
+        if (fallState.elapsed >= 1.65) {
           falling = null;
           resetPenPositions();
           turns.finishPoint();
-          if (winner !== null) fallListener(winner);
+          roundListener(null);
           turnListener(0);
+          actionListener('ready');
         }
         return;
       }
+      const activePen = turns.activePlayer === 0 ? blue : red;
+      turnRing.visible = turns.phase === 'player' || turns.phase === 'aiWaiting';
+      turnRing.position.x = activePen.position.x;
+      turnRing.position.z = activePen.position.z;
+      turnRingMaterial.color.set(turns.activePlayer === 0 ? '#37aaff' : '#e65e3d');
+      const ringPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.006) * 0.08;
+      turnRing.scale.setScalar(ringPulse);
       for (const [pen, velocity] of [[blue, blueVelocity], [red, redVelocity]] as const) {
         pen.position.x += velocity.x * delta;
         pen.position.z += velocity.y * delta;
-        velocity.multiplyScalar(Math.exp(-1.55 * delta));
-        pen.rotation.y += velocity.length() * delta * 0.8;
+        velocity.multiplyScalar(Math.exp(-2.05 * delta));
       }
+      blue.rotation.y += blueAngularVelocity * delta;
+      red.rotation.y += redAngularVelocity * delta;
+      blueAngularVelocity *= Math.exp(-2.35 * delta);
+      redAngularVelocity *= Math.exp(-2.35 * delta);
       const contact = capsuleContact(
         { x: blue.position.x, y: blue.position.z }, blue.rotation.y,
         { x: red.position.x, y: red.position.z }, red.rotation.y,
@@ -312,84 +449,161 @@ export function createClassroom(): ClassroomScene {
       if (contact) {
         const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
         const relative = blueVelocity.clone().sub(redVelocity).dot(normal);
+        const correction = normal.clone().multiplyScalar(contact.penetration * 0.54);
+        blue.position.x -= correction.x;
+        blue.position.z -= correction.y;
+        red.position.x += correction.x;
+        red.position.z += correction.y;
         if (relative > 0.25) {
           const [nextBlue, nextRed] = resolveEqualMassCollision(
             { x: blue.position.x, y: blue.position.z },
             { x: red.position.x, y: red.position.z },
             { x: blueVelocity.x, y: blueVelocity.y },
             { x: redVelocity.x, y: redVelocity.y },
-            0.92,
+            0.86,
             contact.normal,
           );
           blueVelocity.set(nextBlue.x, nextBlue.y);
           redVelocity.set(nextRed.x, nextRed.y);
-          const correction = normal.clone().multiplyScalar(contact.penetration * 0.52);
-          blue.position.x -= correction.x;
-          blue.position.z -= correction.y;
-          red.position.x += correction.x;
-          red.position.z += correction.y;
+          const tangent = new THREE.Vector2(-normal.y, normal.x);
+          const glancingSpeed = blueVelocity.clone().sub(redVelocity).dot(tangent);
+          blueAngularVelocity -= glancingSpeed * 0.13;
+          redAngularVelocity += glancingSpeed * 0.13;
         }
       }
-      const blueOut = isOutsideTable(blue.position.x, blue.position.z);
-      const redOut = isOutsideTable(red.position.x, red.position.z);
+      const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y);
+      const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y);
       const winner = knockoutWinner(blueOut, redOut);
       if (winner !== null) {
         falling = winner === 'draw'
-          ? { pens: [blue, red], winner: null, elapsed: 0 }
-          : { pens: [winner === 0 ? red : blue], winner, elapsed: 0 };
+          ? { pens: [blue, red], winner: null, elapsed: 0, scored: false }
+          : { pens: [winner === 0 ? red : blue], winner, elapsed: 0, scored: false };
+        actionListener('roundReset');
+        roundListener(
+          winner === 'draw'
+            ? 'Double fall — replay the point'
+            : matchMode === 'local'
+              ? `Knockout — Player ${winner + 1} scores`
+              : winner === 0
+                ? 'Knockout — your point!'
+                : 'Knockout — rival scores',
+        );
         blueVelocity.set(0, 0);
         redVelocity.set(0, 0);
+        blueAngularVelocity = 0;
+        redAngularVelocity = 0;
+        aimListener(0);
         aimLine.visible = false;
+        aimHead.visible = false;
         turns.startFall();
         return;
       }
       const previousTurnPhase = turns.phase;
       const action = turns.tick(delta, blueVelocity.length() + redVelocity.length());
-      if (previousTurnPhase === 'playerMoving' && turns.phase === 'aiWaiting') turnListener(1);
+      if (previousTurnPhase === 'playerMoving' && turns.phase === 'aiWaiting') {
+        turnListener(1);
+        actionListener('aiWaiting');
+      }
       if (action === 'aiFlick') {
         launchAi(time);
       } else if (action === 'playerReady') {
-        turnListener(0);
+        blueVelocity.set(0, 0);
+        redVelocity.set(0, 0);
+        blueAngularVelocity = 0;
+        redAngularVelocity = 0;
+        turnListener(turns.activePlayer);
+        actionListener('ready');
       }
     },
-    aim(deltaX: number, pull: number) {
-      if (turns.phase !== 'player') return;
-      const dx = red.position.x - blue.position.x;
-      const dz = red.position.z - blue.position.z;
-      const baseAngle = Math.atan2(-dz, dx);
-      shotAngle = baseAngle + THREE.MathUtils.clamp(deltaX * 0.0055, -0.82, 0.82);
-      blue.rotation.y = shotAngle;
-      blue.position.z = blueStart.z + THREE.MathUtils.clamp(pull * 0.006, 0, 0.7);
-      const guideLength = 1.8 + THREE.MathUtils.clamp(pull * 0.016, 0, 3.6);
+    aim(deltaX: number, deltaY: number) {
+      if (turns.phase !== 'player') return false;
+      const pen = activeHumanPen();
+      const opponent = inactiveHumanPen();
+      if (!aimActive) {
+        aimOrigin.copy(pen.position);
+        aimOriginAngle = pen.rotation.y;
+        aimActive = true;
+        actionListener('aiming');
+      }
+      const aim = computeFlickAim(deltaX, deltaY, 2.4);
+      const assisted = assistedDirection(aim.direction, {
+        x: opponent.position.x - aimOrigin.x,
+        y: opponent.position.z - aimOrigin.z,
+      });
+      shotAngle = Math.atan2(-assisted.y, assisted.x);
+      aimPower = aim.power;
+      const guideLength = 1.35 + aim.power * 4.2;
       aimGeometry.setFromPoints([
-        new THREE.Vector3(blue.position.x, 2.74, blue.position.z),
+        new THREE.Vector3(aimOrigin.x, 2.74, aimOrigin.z),
         new THREE.Vector3(
-          blue.position.x + Math.cos(shotAngle) * guideLength,
+          aimOrigin.x + Math.cos(shotAngle) * guideLength,
           2.74,
-          blue.position.z - Math.sin(shotAngle) * guideLength,
+          aimOrigin.z - Math.sin(shotAngle) * guideLength,
         ),
       ]);
-      aimLine.visible = true;
+      aimLine.visible = aim.power > 0.04;
+      const aimDirection = new THREE.Vector3(Math.cos(shotAngle), 0, -Math.sin(shotAngle));
+      aimHead.position.set(
+        aimOrigin.x + aimDirection.x * guideLength,
+        2.74,
+        aimOrigin.z + aimDirection.z * guideLength,
+      );
+      aimHead.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), aimDirection);
+      aimHead.visible = aim.power > 0.04;
+      aimListener(aim.power);
+      return true;
     },
-    flick(power: number) {
-      if (!turns.playerFlicked()) return;
-      const strength = THREE.MathUtils.clamp(power * 55, 3.4, 12.5);
-      blueVelocity.set(Math.cos(shotAngle) * strength, -Math.sin(shotAngle) * strength);
-      blue.position.z = blueStart.z;
+    flick() {
+      if (turns.phase !== 'player') return false;
+      const pen = activeHumanPen();
+      if (aimPower < 0.08) {
+        if (aimActive) {
+          pen.position.copy(aimOrigin);
+          pen.rotation.y = aimOriginAngle;
+        }
+        aimActive = false;
+        aimPower = 0;
+        aimListener(0);
+        aimLine.visible = false;
+        aimHead.visible = false;
+        actionListener('ready');
+        return false;
+      }
+      if (!turns.playerFlicked()) return false;
+      const strength = THREE.MathUtils.lerp(4.6, 15.2, Math.pow(aimPower, 0.72));
+      activeHumanVelocity().set(Math.cos(shotAngle) * strength, -Math.sin(shotAngle) * strength);
+      pen.position.copy(aimOrigin);
+      stopActiveHumanSpin();
+      aimActive = false;
+      aimPower = 0;
+      aimListener(0);
       aimLine.visible = false;
+      aimHead.visible = false;
+      actionListener('playerMoving');
+      return true;
     },
     cancelAim() {
-      if (turns.phase !== 'player') return;
-      blue.position.copy(blueStart);
+      if (turns.phase !== 'player' || !aimActive) return;
+      const pen = activeHumanPen();
+      pen.position.copy(aimOrigin);
+      pen.rotation.y = aimOriginAngle;
+      aimActive = false;
+      aimPower = 0;
+      aimListener(0);
       aimLine.visible = false;
+      aimHead.visible = false;
+      actionListener('ready');
     },
     resetPens() {
       falling = null;
       turns.finishPoint();
       resetPenPositions();
+      turnRing.visible = true;
+      roundListener(null);
+      actionListener('ready');
     },
     canGrab(raycaster: THREE.Raycaster) {
-      return turns.phase === 'player' && raycaster.intersectObject(blue, true).length > 0;
+      return turns.phase === 'player' && raycaster.intersectObject(activeHumanPen(), true).length > 0;
     },
     setFallListener(listener: (winner: 0 | 1) => void) {
       fallListener = listener;
@@ -397,10 +611,34 @@ export function createClassroom(): ClassroomScene {
     setTurnListener(listener: (player: 0 | 1) => void) {
       turnListener = listener;
     },
-    setMatchMode(mode: 'quick' | 'practice') {
+    setAimListener(listener: (power: number) => void) {
+      aimListener = listener;
+    },
+    setRoundListener(listener: (message: string | null) => void) {
+      roundListener = listener;
+    },
+    setActionListener(listener: (action: ArenaAction) => void) {
+      actionListener = listener;
+    },
+    setMatchMode(mode: MatchMode) {
+      matchMode = mode;
       turns.begin(mode);
       resetPenPositions();
+      actionListener('ready');
       turnListener(0);
     },
+    getArenaSnapshot(seq, score) {
+      return { seq, pens: [
+        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: blueAngularVelocity },
+        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: redAngularVelocity },
+      ], score: [score[0], score[1]], currentPlayer: turns.activePlayer, phase: falling ? 'falling' : turns.phase };
+    },
+    applyArenaSnapshot(snapshot) {
+      const [blueState, redState] = snapshot.pens;
+      blue.position.set(blueState.x, blueState.y, blueState.z); blue.rotation.set(blueState.rotationX, blueState.angle, blueState.rotationZ); blueVelocity.set(blueState.velocityX, blueState.velocityZ); blueAngularVelocity = blueState.angularVelocity;
+      red.position.set(redState.x, redState.y, redState.z); red.rotation.set(redState.rotationX, redState.angle, redState.rotationZ); redVelocity.set(redState.velocityX, redState.velocityZ); redAngularVelocity = redState.angularVelocity;
+      turns.syncState(snapshot.currentPlayer, snapshot.phase);
+    },
+    setReplica(value) { replica = value; },
   };
 }

@@ -2,6 +2,7 @@ import {
   type AppSettings,
   type AppPhase,
   type AppState,
+  type MatchMode,
   createInitialState,
   freezeState,
 } from './app-state';
@@ -11,7 +12,8 @@ type AppListener = (state: AppState) => void;
 const legalTransitions: Readonly<Record<AppPhase, readonly AppPhase[]>> = {
   booting: ['naming', 'home', 'fatalError'],
   naming: ['home', 'fatalError'],
-  home: ['naming', 'selectingMode', 'match', 'fatalError'],
+  home: ['naming', 'settingUpLocal', 'selectingMode', 'match', 'fatalError'],
+  settingUpLocal: ['home', 'match', 'fatalError'],
   selectingMode: ['home', 'match', 'fatalError'],
   match: ['paused', 'result', 'home', 'fatalError'],
   paused: ['match', 'home', 'fatalError'],
@@ -72,15 +74,37 @@ export class AppStore {
     });
   }
 
-  startMatch(mode: 'quick' | 'practice'): void {
+  startMatch(mode: MatchMode, rivalName?: string): void {
     if (this.#state.phase !== 'selectingMode' && this.#state.phase !== 'result') {
       throw new Error(`Cannot start a match from ${this.#state.phase}.`);
     }
+    const localRival = mode === 'local' || mode === 'online' ? (rivalName ?? '').trim().slice(0, 18) : undefined;
+    if ((mode === 'local' || mode === 'online') && !localRival) throw new Error('Second player name cannot be empty.');
     this.#publish({
       ...this.#state,
       phase: 'match',
-      match: { score: [0, 0], currentPlayer: 0, mode },
+      match: { score: [0, 0], currentPlayer: 0, mode, ...(localRival ? { rivalName: localRival } : {}) },
     });
+  }
+
+  startLocalMatch(value: string): void {
+    if (this.#state.phase !== 'settingUpLocal') {
+      throw new Error(`Cannot start a local match from ${this.#state.phase}.`);
+    }
+    const rivalName = value.trim().slice(0, 18);
+    if (!rivalName) throw new Error('Second player name cannot be empty.');
+    this.#publish({
+      ...this.#state,
+      phase: 'match',
+      match: { score: [0, 0], currentPlayer: 0, mode: 'local', rivalName },
+    });
+  }
+
+  startOnlineMatch(rivalName: string): void {
+    if (this.#state.phase !== 'settingUpLocal') throw new Error(`Cannot start an online match from ${this.#state.phase}.`);
+    const rival = rivalName.trim().slice(0, 18);
+    if (!rival) throw new Error('Online rival name cannot be empty.');
+    this.#publish({ ...this.#state, phase: 'match', match: { score: [0, 0], currentPlayer: 0, mode: 'online', rivalName: rival } });
   }
 
   recordPoint(winner: 0 | 1): void {
@@ -99,6 +123,12 @@ export class AppStore {
     const match = this.#state.match;
     if (this.#state.phase !== 'match' || !match || match.currentPlayer === player) return;
     this.#publish({ ...this.#state, match: { ...match, currentPlayer: player } });
+  }
+
+  syncOnlineMatch(score: readonly [number, number], currentPlayer: 0 | 1, phase: 'match' | 'result'): void {
+    const match = this.#state.match;
+    if (!match || match.mode !== 'online' || (this.#state.phase !== 'match' && this.#state.phase !== 'result')) return;
+    this.#publish({ ...this.#state, phase, match: { ...match, score: [score[0], score[1]], currentPlayer } });
   }
 
   pauseForVisibility(): void {

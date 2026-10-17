@@ -165,8 +165,11 @@ class _MatchScreenState extends State<MatchScreen> with WidgetsBindingObserver {
                   width: compact ? null : 330,
                   child: ValueListenableBuilder<MatchSnapshot>(
                     valueListenable: _game.snapshot,
-                    builder: (context, state, _) =>
-                        _ChalkHud(mode: widget.mode, state: state),
+                    builder: (context, state, _) => _ChalkHud(
+                      mode: widget.mode,
+                      state: state,
+                      playerName: widget.settings.playerName,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -174,8 +177,11 @@ class _MatchScreenState extends State<MatchScreen> with WidgetsBindingObserver {
                   bottom: 12,
                   child: ValueListenableBuilder<MatchSnapshot>(
                     valueListenable: _game.snapshot,
-                    builder: (context, state, _) =>
-                        _TurnCard(state: state, mode: widget.mode),
+                    builder: (context, state, _) => _TurnCard(
+                      state: state,
+                      mode: widget.mode,
+                      playerName: widget.settings.playerName,
+                    ),
                   ),
                 ),
                 ValueListenableBuilder<MatchSnapshot>(
@@ -233,9 +239,14 @@ class _MatchScreenState extends State<MatchScreen> with WidgetsBindingObserver {
 }
 
 class _ChalkHud extends StatelessWidget {
-  const _ChalkHud({required this.mode, required this.state});
+  const _ChalkHud({
+    required this.mode,
+    required this.state,
+    required this.playerName,
+  });
   final GameMode mode;
   final MatchSnapshot state;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +277,7 @@ class _ChalkHud extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           _ScoreLine(
-            name: 'AKHLAK',
+            name: playerName.toUpperCase(),
             value: state.score[0],
             active: state.currentPlayer == 0,
           ),
@@ -329,14 +340,19 @@ class _ScoreLine extends StatelessWidget {
 }
 
 class _TurnCard extends StatelessWidget {
-  const _TurnCard({required this.state, required this.mode});
+  const _TurnCard({
+    required this.state,
+    required this.mode,
+    required this.playerName,
+  });
   final MatchSnapshot state;
   final GameMode mode;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) {
     final name = state.currentPlayer == 0
-        ? 'AKHLAK'
+        ? playerName.toUpperCase()
         : mode == GameMode.solo
         ? 'PRIYA'
         : 'PLAYER 2';

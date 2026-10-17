@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local tooling and downloaded asset packs
+.superpowers/
+desk_flick_assets*/

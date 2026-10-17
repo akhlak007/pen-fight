@@ -1,13 +1,71 @@
 export interface Vec2 { readonly x: number; readonly y: number }
 export interface CapsuleContact { readonly normal: Vec2; readonly penetration: number }
+export interface FlickAim { readonly direction: Vec2; readonly power: number; readonly pullDistance: number }
 export type KnockoutOutcome = 0 | 1 | 'draw' | null;
 
-export const TABLE_BOUNDS = Object.freeze({ centerZ: 0.4, halfWidth: 3.9, halfDepth: 6.75 });
-export const PLAYER_CORNER = Object.freeze({ x: -2.35, z: 5.05 });
-export const AI_CORNER = Object.freeze({ x: 2.35, z: -4.25 });
+export const TABLE_BOUNDS = Object.freeze({ centerZ: 0.4, halfWidth: 4.35, halfDepth: 6.1 });
+export const PLAYER_CORNER = Object.freeze({ x: -2.2, z: 4.7 });
+export const AI_CORNER = Object.freeze({ x: 2.2, z: -3.9 });
 
 export function isOutsideTable(x: number, z: number): boolean {
   return Math.abs(x) > TABLE_BOUNDS.halfWidth || Math.abs(z - TABLE_BOUNDS.centerZ) > TABLE_BOUNDS.halfDepth;
+}
+
+/**
+ * Uses the visible pen body rather than its center to decide whether gravity
+ * should take over. A pen can teeter at the edge, but falls once less than
+ * half of its sampled body remains above the tabletop.
+ */
+export function penHasFallen(
+  x: number,
+  z: number,
+  angle: number,
+  halfLength = 1.82,
+): boolean {
+  let supported = 0;
+  const samples = 9;
+  const forwardX = Math.cos(angle);
+  const forwardZ = -Math.sin(angle);
+  for (let index = 0; index < samples; index += 1) {
+    const along = -halfLength + (halfLength * 2 * index) / (samples - 1);
+    if (!isOutsideTable(x + forwardX * along, z + forwardZ * along)) supported += 1;
+  }
+  return supported < Math.ceil(samples / 2);
+}
+
+/** Converts a screen-space pull gesture into the opposite tabletop shot. */
+export function computeFlickAim(deltaX: number, deltaY: number, maximumPull = 180): FlickAim {
+  const pullDistance = Math.min(Math.hypot(deltaX, deltaY), maximumPull);
+  if (pullDistance < 0.001) {
+    return { direction: { x: 0, y: -1 }, power: 0, pullDistance: 0 };
+  }
+  const rawDistance = Math.hypot(deltaX, deltaY);
+  return {
+    direction: { x: -deltaX / rawDistance, y: -deltaY / rawDistance },
+    power: clamp01(pullDistance / maximumPull),
+    pullDistance,
+  };
+}
+
+/** Adds a small magnetic correction only when the shot already points toward the rival. */
+export function assistedDirection(
+  direction: Vec2,
+  targetDirection: Vec2,
+  strength = 0.16,
+  coneThreshold = 0.35,
+): Vec2 {
+  const targetLength = Math.hypot(targetDirection.x, targetDirection.y);
+  const directionLength = Math.hypot(direction.x, direction.y);
+  if (targetLength < 0.001 || directionLength < 0.001) return direction;
+  const source = { x: direction.x / directionLength, y: direction.y / directionLength };
+  const target = { x: targetDirection.x / targetLength, y: targetDirection.y / targetLength };
+  if (dot(source, target) < coneThreshold) return direction;
+  const blended = {
+    x: source.x * (1 - strength) + target.x * strength,
+    y: source.y * (1 - strength) + target.y * strength,
+  };
+  const blendedLength = Math.hypot(blended.x, blended.y) || 1;
+  return { x: blended.x / blendedLength, y: blended.y / blendedLength };
 }
 
 export function knockoutWinner(playerOut: boolean, aiOut: boolean): KnockoutOutcome {
