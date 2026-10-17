@@ -19,10 +19,10 @@ export class SoloTurnController {
   get activePlayer(): 0 | 1 { return this.#activePlayer; }
   syncState(player: 0 | 1, phase: TurnPhase): void { this.#activePlayer = player; this.#phase = phase; this.#quietTime = 0; }
 
-  begin(mode: MatchMode): void {
+  begin(mode: MatchMode, startingPlayer: 0 | 1 = 0): void {
     this.#mode = mode;
-    this.#phase = 'player';
-    this.#activePlayer = 0;
+    this.#activePlayer = startingPlayer;
+    this.#phase = mode === 'quick' && startingPlayer === 1 ? 'aiWaiting' : 'player';
     this.#quietTime = 0;
     this.#waitTime = 0;
   }
@@ -65,9 +65,9 @@ export class SoloTurnController {
 
   startFall(): void { this.#phase = 'falling'; }
 
-  finishPoint(): void {
-    this.#phase = 'player';
-    this.#activePlayer = 0;
+  finishPoint(nextPlayer: 0 | 1 = 0): void {
+    this.#activePlayer = nextPlayer;
+    this.#phase = this.#mode === 'quick' && nextPlayer === 1 ? 'aiWaiting' : 'player';
     this.#quietTime = 0;
     this.#waitTime = 0;
   }

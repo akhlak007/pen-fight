@@ -53,6 +53,9 @@ function createDesk(material: THREE.Material): THREE.Group {
 
 function createPen(color = '#137cd1'): THREE.Group {
   const group = new THREE.Group();
+  const penVisual = new THREE.Group();
+  penVisual.scale.setScalar(0.75);
+
   const barrelMaterial = new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.2,
@@ -65,21 +68,23 @@ function createPen(color = '#137cd1'): THREE.Group {
   });
   const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.35, 18), barrelMaterial);
   barrel.rotation.z = Math.PI / 2;
-  group.add(barrel);
+  penVisual.add(barrel);
   const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.72, 18), new THREE.MeshStandardMaterial({ color: '#e4f3ff', roughness: 0.48 }));
   grip.rotation.z = Math.PI / 2;
   grip.position.x = 1.45;
-  group.add(grip);
+  penVisual.add(grip);
   const nib = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 18), new THREE.MeshStandardMaterial({ color: '#d8d9da', metalness: 0.9, roughness: 0.15 }));
   nib.rotation.z = -Math.PI / 2;
   nib.position.x = 2.02;
-  group.add(nib);
+  penVisual.add(nib);
   const clip = new THREE.Mesh(new RoundedBoxGeometry(1, 0.06, 0.07, 2, 0.025), new THREE.MeshStandardMaterial({ color: '#e6edf2', metalness: 0.72, roughness: 0.2 }));
   clip.position.set(-1.32, 0.14, 0);
-  group.add(clip);
-  enableShadows(group);
+  penVisual.add(clip);
+  enableShadows(penVisual);
+  group.add(penVisual);
+
   const hitTarget = new THREE.Mesh(
-    new THREE.BoxGeometry(4.3, 0.72, 1.05),
+    new THREE.BoxGeometry(6.4, 1.8, 2.8),
     new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
   );
   hitTarget.name = 'pen-pickup-target';
@@ -190,6 +195,7 @@ function createArenaTable(material: THREE.Material): THREE.Group {
 export interface ClassroomScene {
   readonly group: THREE.Group;
   readonly heroPens: THREE.Group;
+  readonly activePlayer: 0 | 1;
   updateBoard(playerName: string, opponentName?: string, score?: readonly [number, number]): void;
   update(time: number, delta: number, reducedMotion: boolean): void;
   aim(deltaX: number, deltaY: number): boolean;
@@ -496,18 +502,35 @@ export function createClassroom(): ClassroomScene {
   let redWobble = 0;
   let hitListener: (intensity: number) => void = () => undefined;
 
-  function resetPenPositions(): void {
-    blue.position.copy(blueStart);
-    red.position.copy(redStart);
-    blue.rotation.set(0, 1.08, 0);
-    red.rotation.set(0, -2.05, 0);
+  const START_LAYOUTS: readonly {
+    blue: { x: number; z: number; angle: number };
+    red: { x: number; z: number; angle: number };
+  }[] = [
+    { blue: { x: -2.2, z: 4.7, angle: 1.08 }, red: { x: 2.2, z: -3.9, angle: -2.05 } },
+    { blue: { x: 2.2, z: 4.8, angle: 2.05 }, red: { x: -2.2, z: -4.0, angle: -1.08 } },
+    { blue: { x: -0.8, z: 5.1, angle: 1.57 }, red: { x: 0.8, z: -4.5, angle: -1.57 } },
+    { blue: { x: -3.4, z: 4.2, angle: 0.92 }, red: { x: 3.4, z: -3.6, angle: -2.22 } },
+    { blue: { x: 1.6, z: 4.5, angle: 1.75 }, red: { x: -1.4, z: -4.6, angle: -1.38 } },
+  ];
+  let roundIndex = 0;
+  let currentServer: 0 | 1 = 0;
+
+  function resetPenPositions(varied = true): void {
+    const layout = (!varied || matchMode === 'practice')
+      ? START_LAYOUTS[0]
+      : START_LAYOUTS[roundIndex % START_LAYOUTS.length];
+
+    blue.position.set(layout.blue.x, 2.62, layout.blue.z);
+    red.position.set(layout.red.x, 2.64, layout.red.z);
+    blue.rotation.set(0, layout.blue.angle, 0);
+    red.rotation.set(0, layout.red.angle, 0);
     blueVelocity.set(0, 0);
     redVelocity.set(0, 0);
     blueAngularVelocity = 0;
     redAngularVelocity = 0;
     aimPower = 0;
-    aimOrigin.copy(blueStart);
-    aimOriginAngle = 1.08;
+    aimOrigin.copy(blue.position);
+    aimOriginAngle = blue.rotation.y;
     aimActive = false;
     aimListener(0);
     aimLine.visible = false;
@@ -527,7 +550,7 @@ export function createClassroom(): ClassroomScene {
     const error = Math.sin(time * 0.0037) * 0.14;
     const angle = Math.atan2(-dz, dx) + error;
     const distance = Math.hypot(dx, dz);
-    const strength = THREE.MathUtils.clamp(distance * 1.2, 9.6, 14.2);
+    const strength = THREE.MathUtils.clamp(distance * 1.15 + 1.2, 4.2, 11.2);
     red.rotation.y = angle;
     redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
     redAngularVelocity = error * 1.8;
@@ -555,6 +578,7 @@ export function createClassroom(): ClassroomScene {
   return {
     group,
     heroPens,
+    get activePlayer(): 0 | 1 { return turns.activePlayer; },
     updateBoard(playerName: string, opponentName = 'AI rival', score: readonly [number, number] = [0, 0]) {
       const previous = boardMaterial.map;
       boardMaterial.map = createBlackboardTexture(playerName, opponentName, score);
@@ -580,11 +604,13 @@ export function createClassroom(): ClassroomScene {
         }
         if (fallState.elapsed >= 1.65) {
           falling = null;
-          resetPenPositions();
-          turns.finishPoint();
+          roundIndex += 1;
+          currentServer = currentServer === 0 ? 1 : 0;
+          resetPenPositions(true);
+          turns.finishPoint(currentServer);
           roundListener(null);
-          turnListener(0);
-          actionListener('ready');
+          turnListener(currentServer);
+          actionListener(currentServer === 1 && matchMode === 'quick' ? 'aiWaiting' : 'ready');
         }
         return;
       }
@@ -607,6 +633,7 @@ export function createClassroom(): ClassroomScene {
       const contact = capsuleContact(
         { x: blue.position.x, y: blue.position.z }, blue.rotation.y,
         { x: red.position.x, y: red.position.z }, red.rotation.y,
+        1.4, 0.16,
       );
       if (contact) {
         const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
@@ -716,8 +743,8 @@ export function createClassroom(): ClassroomScene {
         red.position.y = 2.64;
         red.rotation.z = 0;
       }
-      const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y);
-      const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y);
+      const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y, 1.4);
+      const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y, 1.4);
       const winner = knockoutWinner(blueOut, redOut);
       if (winner !== null) {
         falling = winner === 'draw'
@@ -841,14 +868,23 @@ export function createClassroom(): ClassroomScene {
     },
     resetPens() {
       falling = null;
-      turns.finishPoint();
-      resetPenPositions();
+      turns.finishPoint(0);
+      resetPenPositions(false);
       turnRing.visible = true;
       roundListener(null);
       actionListener('ready');
     },
     canGrab(raycaster: THREE.Raycaster) {
-      return turns.phase === 'player' && raycaster.intersectObject(activeHumanPen(), true).length > 0;
+      if (turns.phase !== 'player') return false;
+      const pen = activeHumanPen();
+      if (raycaster.intersectObject(pen, true).length > 0) return true;
+      const scratch = new THREE.Vector3();
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2.58);
+      const hit = raycaster.ray.intersectPlane(plane, scratch);
+      if (hit && Math.hypot(hit.x - pen.position.x, hit.z - pen.position.z) <= 3.8) {
+        return true;
+      }
+      return false;
     },
     setFallListener(listener: (winner: 0 | 1) => void) {
       fallListener = listener;
@@ -870,8 +906,10 @@ export function createClassroom(): ClassroomScene {
     },
     setMatchMode(mode: MatchMode) {
       matchMode = mode;
-      turns.begin(mode);
-      resetPenPositions();
+      roundIndex = 0;
+      currentServer = 0;
+      turns.begin(mode, 0);
+      resetPenPositions(true);
       actionListener('ready');
       turnListener(0);
     },

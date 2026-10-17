@@ -96,14 +96,13 @@ describe('match rules', () => {
     return store;
   }
 
-  it('ends a quick match when either player reaches three points', () => {
+  it('ends a quick match when either player reaches two points', () => {
     const store = readyStore('quick');
-    store.recordPoint(0);
     store.recordPoint(0);
     expect(store.snapshot.phase).toBe('match');
     store.recordPoint(0);
     expect(store.snapshot.phase).toBe('result');
-    expect(store.snapshot.match?.score).toEqual([3, 0]);
+    expect(store.snapshot.match?.score).toEqual([2, 0]);
   });
 
   it('keeps practice mode scoreless', () => {
@@ -120,10 +119,9 @@ describe('match rules', () => {
     store.startLocalMatch('Priya');
     store.recordPoint(1);
     store.recordPoint(1);
-    store.recordPoint(1);
 
     expect(store.snapshot.phase).toBe('result');
-    expect(store.snapshot.match?.score).toEqual([0, 3]);
+    expect(store.snapshot.match?.score).toEqual([0, 2]);
     expect(store.snapshot.match?.rivalName).toBe('Priya');
 
     store.startMatch('local', 'Priya');

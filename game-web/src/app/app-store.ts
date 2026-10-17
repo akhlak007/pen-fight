@@ -78,7 +78,11 @@ export class AppStore {
     if (this.#state.phase !== 'selectingMode' && this.#state.phase !== 'result') {
       throw new Error(`Cannot start a match from ${this.#state.phase}.`);
     }
-    const localRival = mode === 'local' || mode === 'online' ? (rivalName ?? '').trim().slice(0, 18) : undefined;
+    const localRival = mode === 'local' || mode === 'online'
+      ? (rivalName ?? '').trim().slice(0, 18)
+      : mode === 'quick'
+        ? (rivalName?.trim() || 'CLASS ACE')
+        : undefined;
     if ((mode === 'local' || mode === 'online') && !localRival) throw new Error('Second player name cannot be empty.');
     this.#publish({
       ...this.#state,
@@ -114,7 +118,7 @@ export class AppStore {
     score[winner] += 1;
     this.#publish({
       ...this.#state,
-      phase: score[winner] >= 3 ? 'result' : 'match',
+      phase: score[winner] >= 2 ? 'result' : 'match',
       match: { ...match, score, currentPlayer: 0, lastScorer: winner },
     });
   }

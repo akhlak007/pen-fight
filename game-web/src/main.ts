@@ -156,7 +156,8 @@ renderer?.setRoundListener((message) => ui.setRoundMessage(message));
 renderer?.setActionListener((action) => ui.setArenaAction(action));
 renderer?.setHitListener((intensity) => ui.triggerHit(intensity));
 store.subscribe((state) => {
-  renderer?.setBoardState(state.player.name, state.match?.rivalName ?? 'AI rival', state.match?.score ?? [0, 0]);
+  const rival = state.match?.rivalName ?? (state.match?.mode === 'local' ? 'PLAYER 2' : state.match?.mode === 'quick' ? 'CLASS ACE' : 'AI rival');
+  renderer?.setBoardState(state.player.name, rival, state.match?.score ?? [0, 0]);
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));
   if (state.phase === 'result') renderer?.setMatchEnabled(false);
   if (state.match?.mode === 'online' && online.state.seat === 'host') online.send({ type: 'state', score: state.match.score, currentPlayer: state.match.currentPlayer, phase: state.phase === 'result' ? 'result' : 'match' });

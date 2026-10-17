@@ -3,7 +3,7 @@ export interface CapsuleContact { readonly normal: Vec2; readonly penetration: n
 export interface FlickAim { readonly direction: Vec2; readonly power: number; readonly pullDistance: number }
 export type KnockoutOutcome = 0 | 1 | 'draw' | null;
 
-export const TABLE_BOUNDS = Object.freeze({ centerZ: 0.4, halfWidth: 5.75, halfDepth: 7.25 });
+export const TABLE_BOUNDS = Object.freeze({ centerZ: 0.4, halfWidth: 5.75, halfDepth: 7.45 });
 export const PLAYER_CORNER = Object.freeze({ x: -2.2, z: 4.7 });
 export const AI_CORNER = Object.freeze({ x: 2.2, z: -3.9 });
 

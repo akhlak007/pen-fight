@@ -157,11 +157,11 @@ export class UiRoot {
                 <div class="fight-copy">
                   <div class="you-are-here-tag">YOU ARE HERE</div>
                   <span class="room-title-code">9A</span>
-                  <h2>${hasName ? 'FINISH YOUR MATCH WITH PRIYA' : 'START YOUR MATCH WITH PRIYA'}</h2>
-                  <p>${hasName ? 'You left it 0-1. The next round is waiting.' : 'Take your place at desk 9A and flick first.'}</p>
-                  <div class="line-score-stamp">${hasName ? 'LINE SCORE 0-1' : 'LINE SCORE 0-0'}</div>
+                  <h2>${hasName ? 'CLASSROOM PEN FIGHT ARENA' : 'START YOUR CLASSROOM MATCH'}</h2>
+                  <p>${hasName ? 'Take your place at desk 9A and flick to win.' : 'Take your place at desk 9A and flick first.'}</p>
+                  <div class="line-score-stamp">${hasName ? 'DESK NO. 04 · BEST OF 3' : 'DESK NO. 04 · BEST OF 3'}</div>
                   <button class="continue-fight" data-action="play" type="button" ${hasName ? '' : 'disabled'}>
-                    ${hasName ? 'CONTINUE THE MATCH' : 'START THE MATCH'}
+                    ${hasName ? 'ENTER THE ARENA' : 'START THE MATCH'}
                   </button>
                 </div>
               </article>
@@ -388,7 +388,7 @@ export class UiRoot {
         showNotice('Saturday Recess Tournament opens at 2:00 PM! Sattu currently holds the championship belt.');
       });
       this.#layer.querySelector('[data-action="ranking"]')?.addEventListener('click', () => {
-        showNotice('Class 9A Standings: You are at #12 (Rookie Desk). Defeat Priya to climb into the top 10!');
+        showNotice('Class 9A Standings: You are at #12 (Rookie Desk). Defeat your classmate rivals to climb into the top 10!');
       });
       this.#layer.querySelector('[data-action="community"]')?.addEventListener('click', () => {
         showNotice('Classroom Community boards are preparing for next term. Join on Discord soon!');
@@ -506,7 +506,9 @@ export class UiRoot {
       const online = state.match?.mode === 'online';
       const activePlayer = state.match?.currentPlayer ?? 0;
       const aiTurn = state.match?.mode === 'quick' && activePlayer === 1;
-      const rivalName = local || online ? state.match?.rivalName ?? 'PLAYER 2' : 'Priya';
+      const rivalName = local || online
+        ? state.match?.rivalName ?? 'PLAYER 2'
+        : state.match?.rivalName ?? 'CLASS ACE';
       const activeName = activePlayer === 0 ? state.player.name : rivalName;
       const paused = state.phase === 'paused';
       const roundLocked = Boolean(this.#roundMessage);
