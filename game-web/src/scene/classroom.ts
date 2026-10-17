@@ -213,11 +213,17 @@ export interface ClassroomScene {
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot;
   applyArenaSnapshot(snapshot: ArenaSnapshot): void;
   setReplica(value: boolean): void;
+  isPenMoving(): boolean;
 }
 
 export function createClassroom(): ClassroomScene {
   const group = new THREE.Group();
   let replica = false;
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  const replicaTargets = [
+    { x: 0, y: 2.62, z: 0, rotX: 0, angle: 0, rotZ: 0, vx: 0, vz: 0, av: 0, active: false },
+    { x: 0, y: 2.63, z: 0, rotX: 0, angle: 0, rotZ: 0, vx: 0, vz: 0, av: 0, active: false },
+  ];
   group.name = 'classroom';
   const woodTexture = createWoodTexture();
   const wood = new THREE.MeshStandardMaterial({ map: woodTexture, color: '#c2b18d', roughness: 0.56, metalness: 0.01 });
@@ -552,6 +558,8 @@ export function createClassroom(): ClassroomScene {
   let currentServer = 0;
 
   function resetPenPositions(varied = true): void {
+    replicaTargets[0]!.active = false;
+    replicaTargets[1]!.active = false;
     if (activePlayerCount === 2) {
       const layout = ((!varied || matchMode === 'practice')
         ? START_LAYOUTS_2P[0]
@@ -661,7 +669,45 @@ export function createClassroom(): ClassroomScene {
     },
     update(time: number, delta: number, reducedMotion: boolean) {
       if (!reducedMotion) bagBlue.rotation.z = Math.sin(time * 0.00035) * 0.008;
-      if (replica) return;
+      if (replica) {
+        const lerpFactor = Math.min(1, delta * 24);
+        for (let i = 0; i < 2; i++) {
+          const pen = pens[i];
+          const target = replicaTargets[i];
+          if (!pen || !target || !target.active) continue;
+
+          // Dead reckoning forward using target velocity
+          target.x += target.vx * delta;
+          target.z += target.vz * delta;
+          target.vx *= Math.exp(-2.05 * delta);
+          target.vz *= Math.exp(-2.05 * delta);
+          target.angle += target.av * delta;
+          target.av *= Math.exp(-2.35 * delta);
+
+          // Smooth interpolation
+          pen.position.x += (target.x - pen.position.x) * lerpFactor;
+          pen.position.y += (target.y - pen.position.y) * lerpFactor;
+          pen.position.z += (target.z - pen.position.z) * lerpFactor;
+
+          pen.rotation.x += (target.rotX - pen.rotation.x) * lerpFactor;
+          let dAngle = (target.angle - pen.rotation.y) % (Math.PI * 2);
+          if (dAngle > Math.PI) dAngle -= Math.PI * 2;
+          if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+          pen.rotation.y += dAngle * lerpFactor;
+          pen.rotation.z += (target.rotZ - pen.rotation.z) * lerpFactor;
+        }
+
+        const activePen = pens[turns.activePlayer];
+        if (activePen) {
+          turnRing.visible = turns.phase === 'player';
+          turnRing.position.x = activePen.position.x;
+          turnRing.position.z = activePen.position.z;
+          turnRingMaterial.color.set(PEN_COLORS[turns.activePlayer] ?? '#37aaff');
+          const ringPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.006) * 0.08;
+          turnRing.scale.setScalar(ringPulse);
+        }
+        return;
+      }
       if (falling) {
         const fallState = falling;
         turnRing.visible = false;
@@ -1056,17 +1102,96 @@ export function createClassroom(): ClassroomScene {
       turnListener(0);
     },
     getArenaSnapshot(seq, score) {
-      return { seq, pens: [
-        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: penAngularVelocities[0] ?? 0 },
-        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: penAngularVelocities[1] ?? 0 },
-      ], score: [score[0] ?? 0, score[1] ?? 0], currentPlayer: (turns.activePlayer as 0 | 1), phase: falling ? 'falling' : turns.phase };
+      return {
+        seq,
+        pens: [
+          {
+            x: r3(blue.position.x),
+            y: r3(blue.position.y),
+            z: r3(blue.position.z),
+            angle: r3(blue.rotation.y),
+            rotationX: r3(blue.rotation.x),
+            rotationZ: r3(blue.rotation.z),
+            velocityX: r3(blueVelocity.x),
+            velocityZ: r3(blueVelocity.y),
+            angularVelocity: r3(penAngularVelocities[0] ?? 0),
+          },
+          {
+            x: r3(red.position.x),
+            y: r3(red.position.y),
+            z: r3(red.position.z),
+            angle: r3(red.rotation.y),
+            rotationX: r3(red.rotation.x),
+            rotationZ: r3(red.rotation.z),
+            velocityX: r3(redVelocity.x),
+            velocityZ: r3(redVelocity.y),
+            angularVelocity: r3(penAngularVelocities[1] ?? 0),
+          },
+        ],
+        score: [score[0] ?? 0, score[1] ?? 0],
+        currentPlayer: (turns.activePlayer as 0 | 1),
+        phase: falling ? 'falling' : turns.phase,
+      };
     },
     applyArenaSnapshot(snapshot) {
       const [blueState, redState] = snapshot.pens;
-      blue.position.set(blueState.x, blueState.y, blueState.z); blue.rotation.set(blueState.rotationX, blueState.angle, blueState.rotationZ); blueVelocity.set(blueState.velocityX, blueState.velocityZ); penAngularVelocities[0] = blueState.angularVelocity;
-      red.position.set(redState.x, redState.y, redState.z); red.rotation.set(redState.rotationX, redState.angle, redState.rotationZ); redVelocity.set(redState.velocityX, redState.velocityZ); penAngularVelocities[1] = redState.angularVelocity;
+      const bTarget = replicaTargets[0]!;
+      const rTarget = replicaTargets[1]!;
+
+      // Distance check to snap on teleport/reset
+      const distSq = (blue.position.x - blueState.x) ** 2 + (blue.position.z - blueState.z) ** 2;
+      const snapDirectly = !bTarget.active || distSq > 3;
+
+      bTarget.x = blueState.x;
+      bTarget.y = blueState.y;
+      bTarget.z = blueState.z;
+      bTarget.rotX = blueState.rotationX;
+      bTarget.angle = blueState.angle;
+      bTarget.rotZ = blueState.rotationZ;
+      bTarget.vx = blueState.velocityX;
+      bTarget.vz = blueState.velocityZ;
+      bTarget.av = blueState.angularVelocity;
+      bTarget.active = true;
+
+      rTarget.x = redState.x;
+      rTarget.y = redState.y;
+      rTarget.z = redState.z;
+      rTarget.rotX = redState.rotationX;
+      rTarget.angle = redState.angle;
+      rTarget.rotZ = redState.rotationZ;
+      rTarget.vx = redState.velocityX;
+      rTarget.vz = redState.velocityZ;
+      rTarget.av = redState.angularVelocity;
+      rTarget.active = true;
+
+      if (snapDirectly) {
+        blue.position.set(blueState.x, blueState.y, blueState.z);
+        blue.rotation.set(blueState.rotationX, blueState.angle, blueState.rotationZ);
+        blueVelocity.set(blueState.velocityX, blueState.velocityZ);
+        penAngularVelocities[0] = blueState.angularVelocity;
+
+        red.position.set(redState.x, redState.y, redState.z);
+        red.rotation.set(redState.rotationX, redState.angle, redState.rotationZ);
+        redVelocity.set(redState.velocityX, redState.velocityZ);
+        penAngularVelocities[1] = redState.angularVelocity;
+      }
       turns.syncState(snapshot.currentPlayer, snapshot.phase);
     },
-    setReplica(value) { replica = value; },
+    setReplica(value) {
+      replica = value;
+      if (!value) {
+        replicaTargets[0]!.active = false;
+        replicaTargets[1]!.active = false;
+      }
+    },
+    isPenMoving() {
+      return (
+        Boolean(falling) ||
+        blueVelocity.lengthSq() > 0.001 ||
+        redVelocity.lengthSq() > 0.001 ||
+        Math.abs(penAngularVelocities[0] ?? 0) > 0.01 ||
+        Math.abs(penAngularVelocities[1] ?? 0) > 0.01
+      );
+    },
   };
 }

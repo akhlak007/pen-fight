@@ -150,11 +150,44 @@ function enterOnlineMatch(state: OnlineState): void {
   store.startOnlineMatch(rival || 'Online friend');
   renderer?.focusArena(); renderer?.setMatchMode('online'); renderer?.setReplica(state.seat === 'guest'); renderer?.setMatchEnabled(true);
   ambience.startGameAmbience();
+
+  let pendingAim: { x: number; y: number } | null = null;
+  let aimSendTimer: number | null = null;
+  const flushAim = () => {
+    if (pendingAim && online.connected) {
+      online.send({ type: 'intent', action: 'aim', x: pendingAim.x, y: pendingAim.y });
+      pendingAim = null;
+    }
+    aimSendTimer = null;
+  };
+
   renderer?.setInputListener((action, x, y) => {
     if (state.seat === 'guest') {
       if (store.snapshot.match?.currentPlayer === 1) {
-        online.send({ type: 'intent', action, ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) });
-        if (action === 'aim' || action === 'cancel') renderer?.remoteInput(action, x, y);
+        if (action === 'aim' && x !== undefined && y !== undefined) {
+          renderer?.remoteInput('aim', x, y);
+          pendingAim = { x, y };
+          if (aimSendTimer === null) {
+            flushAim();
+            aimSendTimer = window.setTimeout(flushAim, 40);
+          }
+        } else if (action === 'flick') {
+          if (aimSendTimer !== null) {
+            clearTimeout(aimSendTimer);
+            aimSendTimer = null;
+          }
+          pendingAim = null;
+          online.send({ type: 'intent', action: 'flick' });
+          renderer?.remoteInput('flick');
+        } else if (action === 'cancel') {
+          if (aimSendTimer !== null) {
+            clearTimeout(aimSendTimer);
+            aimSendTimer = null;
+          }
+          pendingAim = null;
+          online.send({ type: 'intent', action: 'cancel' });
+          renderer?.remoteInput('cancel');
+        }
       }
       return true;
     }
@@ -198,10 +231,20 @@ store.subscribe((state) => {
   }
 });
 let onlineSnapshotSeq = 0;
+let lastSnapshotSend = 0;
+let wasMoving = false;
 window.setInterval(() => {
   const state = store.snapshot;
-  if (state.phase === 'match' && state.match?.mode === 'online' && online.state.seat === 'host' && renderer) online.send({ type: 'snapshot', arena: renderer.getArenaSnapshot(++onlineSnapshotSeq, state.match.score) });
-}, 50);
+  if (state.phase !== 'match' || state.match?.mode !== 'online' || online.state.seat !== 'host' || !renderer) return;
+  const now = performance.now();
+  const moving = renderer.isPenMoving();
+  const interval = moving ? 40 : 300;
+  if (now - lastSnapshotSend >= interval || moving !== wasMoving) {
+    lastSnapshotSend = now;
+    wasMoving = moving;
+    online.send({ type: 'snapshot', arena: renderer.getArenaSnapshot(++onlineSnapshotSeq, state.match.score) });
+  }
+}, 16);
 
 attachLifecycle(store);
 document.addEventListener('visibilitychange', () => {

@@ -33,7 +33,7 @@ export class GameRenderer {
     this.#renderer.toneMappingExposure = 0.92;
     this.#renderer.shadowMap.enabled = true;
     this.#renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.#renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    this.#renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.#scene.background = new THREE.Color('#3f4633');
     this.#scene.fog = new THREE.FogExp2('#4c523c', 0.008);
     this.#classroom = createClassroom();
@@ -174,6 +174,7 @@ export class GameRenderer {
     else if (action === 'flick') this.#classroom.flick();
     else if (action === 'cancel') this.#classroom.cancelAim();
   }
+  isPenMoving(): boolean { return this.#classroom.isPenMoving?.() ?? true; }
   setSuspended(value: boolean): void {
     this.#suspended = value;
     if (value) this.#cancelDrag();
