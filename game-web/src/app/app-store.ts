@@ -125,11 +125,12 @@ export class AppStore {
     if (this.#state.phase !== 'match' || !match || match.mode === 'practice') return;
     const score = [...match.score];
     if (winner >= 0 && winner < score.length) {
-      score[winner] += 1;
+      score[winner] = (score[winner] ?? 0) + 1;
     }
+    const currentScore = score[winner] ?? 0;
     this.#publish({
       ...this.#state,
-      phase: score[winner] >= 2 ? 'result' : 'match',
+      phase: currentScore >= 2 ? 'result' : 'match',
       match: { ...match, score, currentPlayer: 0, lastScorer: winner },
     });
   }

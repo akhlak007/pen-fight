@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AmbienceService, type AudioPlayer } from './ambience-service';
 
 function createMockAudio(): AudioPlayer & { playCount: number; pauseCount: number } {

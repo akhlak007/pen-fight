@@ -151,7 +151,7 @@ export class UiRoot {
                 <div class="polaroid-photo">
                   <div class="tape-strip" aria-hidden="true"></div>
                   <div class="photo-frame">
-                    <img src="/door_9a.jpg" alt="Classroom 9A door" class="door-img" />
+                    <img src="${import.meta.env.BASE_URL}door_9a.jpg" alt="Classroom 9A door" class="door-img" />
                     <span class="door-room-tag">9A</span>
                   </div>
                 </div>
@@ -252,7 +252,7 @@ export class UiRoot {
               <button class="notebook-sound-toggle ${state.settings.ambience ? '' : 'muted'}" data-action="toggle-audio" type="button" aria-label="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}" title="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}">${state.settings.ambience ? '🔊' : '🔇'}</button>
               <button class="notebook-settings" data-action="settings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="desk-settings">⚙</button>
               <div class="desk-pen-prop" aria-hidden="true">
-                <img src="/blue_pen.jpg" alt="" class="pen-img-prop" />
+                <img src="${import.meta.env.BASE_URL}blue_pen.jpg" alt="" class="pen-img-prop" />
               </div>
 
               <div class="ruled-heading play-heading"><span>PLAY ANOTHER WAY</span></div>
@@ -731,7 +731,7 @@ export class UiRoot {
         <h1 id="result-title">${isMulti ? `${escapeText(winnerName)} is Champion!` : won ? 'Desk champion!' : 'Rematch?'}</h1>
         <p>${isMulti
           ? playerNames.map((name, i) => `${escapeText(name)}: <strong>${scores[i] ?? 0}</strong>`).join(' · ')
-          : `${escapeText(playerNames[0])} <strong>${scores[0] ?? 0} : ${scores[1] ?? 0}</strong> ${escapeText(playerNames[1])}`
+          : `${escapeText(playerNames[0] ?? state.player.name)} <strong>${scores[0] ?? 0} : ${scores[1] ?? 0}</strong> ${escapeText(playerNames[1] ?? 'Player 2')}`
         }</p>
         <div class="result-actions"><button class="paper-button primary rematch" type="button">Flick again →</button><button class="text-button result-exit" type="button">Back to classroom</button></div>
       </section>`;
@@ -799,7 +799,7 @@ export class UiRoot {
     );
   }
 
-  triggerHit(intensity: number): void {
+  triggerHit(_intensity: number): void {
     if (this.#state?.settings?.reducedMotion) return;
     this.#layer.classList.remove('pen-hit-pulse');
     void this.#layer.offsetWidth;

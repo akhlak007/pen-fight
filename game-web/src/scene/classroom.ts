@@ -290,16 +290,11 @@ export function createClassroom(): ClassroomScene {
   const PEN_COLORS = ['#128de0', '#d94f35', '#1ea857', '#e69f00'] as const;
   const heroPens = new THREE.Group();
   heroPens.name = 'hero-pens';
-  const pens = [
-    createPen(PEN_COLORS[0]),
-    createPen(PEN_COLORS[1]),
-    createPen(PEN_COLORS[2]),
-    createPen(PEN_COLORS[3]),
-  ];
-  const blue = pens[0];
-  const red = pens[1];
-  const green = pens[2];
-  const gold = pens[3];
+  const blue = createPen(PEN_COLORS[0]);
+  const red = createPen(PEN_COLORS[1]);
+  const green = createPen(PEN_COLORS[2]);
+  const gold = createPen(PEN_COLORS[3]);
+  const pens: readonly [THREE.Group, THREE.Group, THREE.Group, THREE.Group] = [blue, red, green, gold];
   blue.rotation.y = 1.08;
   blue.position.set(PLAYER_CORNER.x, 2.62, PLAYER_CORNER.z);
   red.rotation.y = -2.05;
@@ -313,11 +308,15 @@ export function createClassroom(): ClassroomScene {
   heroPens.add(...pens);
   group.add(heroPens);
 
-  const penVelocities = pens.map(() => new THREE.Vector2());
-  const penAngularVelocities = pens.map(() => 0);
-  const penWobbles = pens.map(() => 0);
-  const blueVelocity = penVelocities[0];
-  const redVelocity = penVelocities[1];
+  const blueVelocity = new THREE.Vector2();
+  const redVelocity = new THREE.Vector2();
+  const greenVelocity = new THREE.Vector2();
+  const goldVelocity = new THREE.Vector2();
+  const penVelocities: readonly [THREE.Vector2, THREE.Vector2, THREE.Vector2, THREE.Vector2] = [
+    blueVelocity, redVelocity, greenVelocity, goldVelocity
+  ];
+  const penAngularVelocities = [0, 0, 0, 0];
+  const penWobbles = [0, 0, 0, 0];
   let activePlayerCount = 2;
   let currentMatchPlayerNames: readonly string[] = ['Player 1', 'Player 2'];
 
@@ -554,9 +553,9 @@ export function createClassroom(): ClassroomScene {
 
   function resetPenPositions(varied = true): void {
     if (activePlayerCount === 2) {
-      const layout = (!varied || matchMode === 'practice')
+      const layout = ((!varied || matchMode === 'practice')
         ? START_LAYOUTS_2P[0]
-        : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length];
+        : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length]) ?? START_LAYOUTS_2P[0]!;
 
       blue.position.set(layout.blue.x, 2.62, layout.blue.z);
       red.position.set(layout.red.x, 2.64, layout.red.z);
@@ -567,21 +566,25 @@ export function createClassroom(): ClassroomScene {
       green.visible = false;
       gold.visible = false;
     } else {
-      const layout = START_LAYOUTS_4P[roundIndex % START_LAYOUTS_4P.length];
+      const layout = START_LAYOUTS_4P[roundIndex % START_LAYOUTS_4P.length] ?? START_LAYOUTS_4P[0]!;
       for (let i = 0; i < pens.length; i++) {
+        const pen = pens[i];
+        if (!pen) continue;
         if (i < activePlayerCount) {
           const cfg = layout[i];
-          pens[i].position.set(cfg.x, 2.62 + i * 0.01, cfg.z);
-          pens[i].rotation.set(0, cfg.angle, 0);
-          pens[i].visible = true;
+          if (cfg) {
+            pen.position.set(cfg.x, 2.62 + i * 0.01, cfg.z);
+            pen.rotation.set(0, cfg.angle, 0);
+          }
+          pen.visible = true;
         } else {
-          pens[i].visible = false;
+          pen.visible = false;
         }
       }
     }
 
     for (let i = 0; i < pens.length; i++) {
-      penVelocities[i].set(0, 0);
+      penVelocities[i]?.set(0, 0);
       penAngularVelocities[i] = 0;
       penWobbles[i] = 0;
     }
@@ -622,13 +625,15 @@ export function createClassroom(): ClassroomScene {
   function inactiveHumanPen(): THREE.Group {
     const currentActive = activeHumanPen();
     let bestDist = Infinity;
-    let target = pens[(turns.activePlayer + 1) % activePlayerCount] ?? red;
+    let target: THREE.Group = pens[(turns.activePlayer + 1) % activePlayerCount] ?? red;
     for (let i = 0; i < activePlayerCount; i++) {
       if (i === turns.activePlayer || turns.isEliminated(i)) continue;
-      const d = currentActive.position.distanceTo(pens[i].position);
+      const pen = pens[i];
+      if (!pen) continue;
+      const d = currentActive.position.distanceTo(pen.position);
       if (d < bestDist) {
         bestDist = d;
-        target = pens[i];
+        target = pen;
       }
     }
     return target;
@@ -692,19 +697,20 @@ export function createClassroom(): ClassroomScene {
       turnRing.scale.setScalar(ringPulse);
 
       for (let i = 0; i < activePlayerCount; i++) {
-        if (!pens[i].visible || turns.isEliminated(i)) continue;
         const pen = pens[i];
         const velocity = penVelocities[i];
+        if (!pen || !velocity || !pen.visible || turns.isEliminated(i)) continue;
         pen.position.x += velocity.x * delta;
         pen.position.z += velocity.y * delta;
         velocity.multiplyScalar(Math.exp(-2.05 * delta));
-        pen.rotation.y += penAngularVelocities[i] * delta;
-        penAngularVelocities[i] *= Math.exp(-2.35 * delta);
+        pen.rotation.y += (penAngularVelocities[i] ?? 0) * delta;
+        penAngularVelocities[i] = (penAngularVelocities[i] ?? 0) * Math.exp(-2.35 * delta);
 
-        if (penWobbles[i] > 0.001) {
-          pen.position.y = (2.62 + i * 0.01) + Math.abs(Math.sin(time * 0.04)) * penWobbles[i];
-          pen.rotation.z += Math.sin(time * 0.05) * penWobbles[i] * 0.4;
-          penWobbles[i] = Math.max(0, penWobbles[i] - delta * 0.85);
+        const wobble = penWobbles[i] ?? 0;
+        if (wobble > 0.001) {
+          pen.position.y = (2.62 + i * 0.01) + Math.abs(Math.sin(time * 0.04)) * wobble;
+          pen.rotation.z += Math.sin(time * 0.05) * wobble * 0.4;
+          penWobbles[i] = Math.max(0, wobble - delta * 0.85);
         } else {
           pen.position.y = 2.62 + i * 0.01;
           pen.rotation.z = 0;
@@ -712,40 +718,44 @@ export function createClassroom(): ClassroomScene {
       }
 
       for (let i = 0; i < activePlayerCount; i++) {
-        if (turns.isEliminated(i) || !pens[i].visible) continue;
+        const pI = pens[i];
+        const vI = penVelocities[i];
+        if (!pI || !vI || turns.isEliminated(i) || !pI.visible) continue;
         for (let j = i + 1; j < activePlayerCount; j++) {
-          if (turns.isEliminated(j) || !pens[j].visible) continue;
+          const pJ = pens[j];
+          const vJ = penVelocities[j];
+          if (!pJ || !vJ || turns.isEliminated(j) || !pJ.visible) continue;
           const contact = capsuleContact(
-            { x: pens[i].position.x, y: pens[i].position.z }, pens[i].rotation.y,
-            { x: pens[j].position.x, y: pens[j].position.z }, pens[j].rotation.y,
+            { x: pI.position.x, y: pI.position.z }, pI.rotation.y,
+            { x: pJ.position.x, y: pJ.position.z }, pJ.rotation.y,
             1.4, 0.16,
           );
           if (contact) {
             const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
-            const relative = penVelocities[i].clone().sub(penVelocities[j]).dot(normal);
+            const relative = vI.clone().sub(vJ).dot(normal);
             const correction = normal.clone().multiplyScalar(contact.penetration * 0.54);
-            pens[i].position.x -= correction.x;
-            pens[i].position.z -= correction.y;
-            pens[j].position.x += correction.x;
-            pens[j].position.z += correction.y;
+            pI.position.x -= correction.x;
+            pI.position.z -= correction.y;
+            pJ.position.x += correction.x;
+            pJ.position.z += correction.y;
             if (relative > 0.25) {
               const [nextI, nextJ] = resolveEqualMassCollision(
-                { x: pens[i].position.x, y: pens[i].position.z },
-                { x: pens[j].position.x, y: pens[j].position.z },
-                { x: penVelocities[i].x, y: penVelocities[i].y },
-                { x: penVelocities[j].x, y: penVelocities[j].y },
+                { x: pI.position.x, y: pI.position.z },
+                { x: pJ.position.x, y: pJ.position.z },
+                { x: vI.x, y: vI.y },
+                { x: vJ.x, y: vJ.y },
                 0.86,
                 contact.normal,
               );
-              penVelocities[i].set(nextI.x, nextI.y);
-              penVelocities[j].set(nextJ.x, nextJ.y);
+              vI.set(nextI.x, nextI.y);
+              vJ.set(nextJ.x, nextJ.y);
               const tangent = new THREE.Vector2(-normal.y, normal.x);
-              const glancingSpeed = penVelocities[i].clone().sub(penVelocities[j]).dot(tangent);
-              penAngularVelocities[i] -= glancingSpeed * 0.13;
-              penAngularVelocities[j] += glancingSpeed * 0.13;
+              const glancingSpeed = vI.clone().sub(vJ).dot(tangent);
+              penAngularVelocities[i] = (penAngularVelocities[i] ?? 0) - glancingSpeed * 0.13;
+              penAngularVelocities[j] = (penAngularVelocities[j] ?? 0) + glancingSpeed * 0.13;
 
-              const contactX = (pens[i].position.x + pens[j].position.x) * 0.5;
-              const contactZ = (pens[i].position.z + pens[j].position.z) * 0.5;
+              const contactX = (pI.position.x + pJ.position.x) * 0.5;
+              const contactZ = (pI.position.z + pJ.position.z) * 0.5;
 
               shockwave.position.set(contactX, 2.585, contactZ);
               shockwave.scale.setScalar(0.4);
@@ -845,8 +855,9 @@ export function createClassroom(): ClassroomScene {
       } else {
         const newlyFallen: number[] = [];
         for (let i = 0; i < activePlayerCount; i++) {
-          if (turns.isEliminated(i) || !pens[i].visible) continue;
-          if (penHasFallen(pens[i].position.x, pens[i].position.z, pens[i].rotation.y, 1.4)) {
+          const pen = pens[i];
+          if (!pen || turns.isEliminated(i) || !pen.visible) continue;
+          if (penHasFallen(pen.position.x, pen.position.z, pen.rotation.y, 1.4)) {
             turns.eliminatePlayer(i);
             newlyFallen.push(i);
           }
@@ -854,9 +865,9 @@ export function createClassroom(): ClassroomScene {
         if (newlyFallen.length > 0) {
           if (turns.remainingPlayerCount <= 1) {
             const surviving = turns.survivingPlayers;
-            const winner: number | null = surviving.length === 1 ? surviving[0] : null;
+            const winner: number | null = surviving.length === 1 ? (surviving[0] ?? null) : null;
             falling = {
-              pens: newlyFallen.map((idx) => pens[idx]),
+              pens: newlyFallen.map((idx) => pens[idx]).filter((p): p is THREE.Group => Boolean(p)),
               winner,
               elapsed: 0,
               scored: false,
@@ -868,7 +879,7 @@ export function createClassroom(): ClassroomScene {
                 : `Knockout — ${currentMatchPlayerNames[winner] ?? `Player ${winner + 1}`} scores`,
             );
             for (let i = 0; i < activePlayerCount; i++) {
-              penVelocities[i].set(0, 0);
+              penVelocities[i]?.set(0, 0);
               penAngularVelocities[i] = 0;
             }
             aimListener(0);
@@ -880,8 +891,9 @@ export function createClassroom(): ClassroomScene {
             const eliminatedNames = newlyFallen.map((idx) => currentMatchPlayerNames[idx] ?? `Player ${idx + 1}`).join(', ');
             roundListener(`Knockout — ${eliminatedNames} eliminated!`);
             for (const idx of newlyFallen) {
-              pens[idx].position.y = -5;
-              penVelocities[idx].set(0, 0);
+              const p = pens[idx];
+              if (p) p.position.y = -5;
+              penVelocities[idx]?.set(0, 0);
             }
           }
         }
@@ -889,8 +901,10 @@ export function createClassroom(): ClassroomScene {
 
       let totalSpeed = 0;
       for (let i = 0; i < activePlayerCount; i++) {
-        if (pens[i].visible && !turns.isEliminated(i)) {
-          totalSpeed += penVelocities[i].length();
+        const p = pens[i];
+        const v = penVelocities[i];
+        if (p && v && p.visible && !turns.isEliminated(i)) {
+          totalSpeed += v.length();
         }
       }
 
@@ -904,7 +918,7 @@ export function createClassroom(): ClassroomScene {
         launchAi(time);
       } else if (action === 'playerReady') {
         for (let i = 0; i < activePlayerCount; i++) {
-          penVelocities[i].set(0, 0);
+          penVelocities[i]?.set(0, 0);
           penAngularVelocities[i] = 0;
         }
         turnListener(turns.activePlayer);
@@ -1043,8 +1057,8 @@ export function createClassroom(): ClassroomScene {
     },
     getArenaSnapshot(seq, score) {
       return { seq, pens: [
-        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: penAngularVelocities[0] },
-        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: penAngularVelocities[1] },
+        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: penAngularVelocities[0] ?? 0 },
+        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: penAngularVelocities[1] ?? 0 },
       ], score: [score[0] ?? 0, score[1] ?? 0], currentPlayer: (turns.activePlayer as 0 | 1), phase: falling ? 'falling' : turns.phase };
     },
     applyArenaSnapshot(snapshot) {

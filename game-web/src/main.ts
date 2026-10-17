@@ -44,7 +44,7 @@ const storage = new StorageService(availableStorage);
 const save = storage.load();
 store.hydrate(save.playerName, save.settings);
 const online = new OnlineSession();
-const ambience = new AmbienceService('/audio/sound_of_class.mp3');
+const ambience = new AmbienceService(`${import.meta.env.BASE_URL}audio/sound_of_class.mp3`);
 ambience.setEnabled(save.settings.ambience);
 let pendingRoom = OnlineSession.roomFromUrl();
 
@@ -179,7 +179,11 @@ store.subscribe((state) => {
   renderer?.setBoardState(state.player.name, rival, state.match?.score ?? [0, 0]);
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));
   if (state.phase === 'result') renderer?.setMatchEnabled(false);
-  if (state.match?.mode === 'online' && online.state.seat === 'host') online.send({ type: 'state', score: state.match.score, currentPlayer: state.match.currentPlayer, phase: state.phase === 'result' ? 'result' : 'match' });
+  if (state.match?.mode === 'online' && online.state.seat === 'host') {
+    const onlineScore: readonly [number, number] = [state.match.score[0] ?? 0, state.match.score[1] ?? 0];
+    const onlinePlayer: 0 | 1 = state.match.currentPlayer === 1 ? 1 : 0;
+    online.send({ type: 'state', score: onlineScore, currentPlayer: onlinePlayer, phase: state.phase === 'result' ? 'result' : 'match' });
+  }
   const inGameMatch = state.phase === 'match' || state.phase === 'paused' || state.phase === 'result';
   if (inGameMatch && !ambience.shouldPlay) {
     ambience.startGameAmbience();
