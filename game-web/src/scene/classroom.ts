@@ -1049,8 +1049,8 @@ export function createClassroom(): ClassroomScene {
     },
     applyArenaSnapshot(snapshot) {
       const [blueState, redState] = snapshot.pens;
-      blue.position.set(blueState.x, blueState.y, blueState.z); blue.rotation.set(blueState.rotationX, blueState.angle, blueState.rotationZ); blueVelocity.set(blueState.velocityX, blueState.velocityZ); blueAngularVelocity = blueState.angularVelocity;
-      red.position.set(redState.x, redState.y, redState.z); red.rotation.set(redState.rotationX, redState.angle, redState.rotationZ); redVelocity.set(redState.velocityX, redState.velocityZ); redAngularVelocity = redState.angularVelocity;
+      blue.position.set(blueState.x, blueState.y, blueState.z); blue.rotation.set(blueState.rotationX, blueState.angle, blueState.rotationZ); blueVelocity.set(blueState.velocityX, blueState.velocityZ); penAngularVelocities[0] = blueState.angularVelocity;
+      red.position.set(redState.x, redState.y, redState.z); red.rotation.set(redState.rotationX, redState.angle, redState.rotationZ); redVelocity.set(redState.velocityX, redState.velocityZ); penAngularVelocities[1] = redState.angularVelocity;
       turns.syncState(snapshot.currentPlayer, snapshot.phase);
     },
     setReplica(value) { replica = value; },
