@@ -33,11 +33,12 @@ export interface LoadProgress {
 }
 
 export interface MatchSnapshot {
-  readonly score: readonly [number, number];
-  readonly currentPlayer: 0 | 1;
+  readonly score: readonly number[];
+  readonly currentPlayer: number;
   readonly mode: MatchMode;
   readonly rivalName?: string;
-  readonly lastScorer?: 0 | 1;
+  readonly playerNames?: readonly string[];
+  readonly lastScorer?: number;
 }
 
 export interface AppState {

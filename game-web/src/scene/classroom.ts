@@ -195,22 +195,22 @@ function createArenaTable(material: THREE.Material): THREE.Group {
 export interface ClassroomScene {
   readonly group: THREE.Group;
   readonly heroPens: THREE.Group;
-  readonly activePlayer: 0 | 1;
-  updateBoard(playerName: string, opponentName?: string, score?: readonly [number, number]): void;
+  readonly activePlayer: number;
+  updateBoard(playerName: string, opponentName?: string, score?: readonly number[]): void;
   update(time: number, delta: number, reducedMotion: boolean): void;
   aim(deltaX: number, deltaY: number): boolean;
   flick(): boolean;
   cancelAim(): void;
   resetPens(): void;
   canGrab(raycaster: THREE.Raycaster): boolean;
-  setFallListener(listener: (winner: 0 | 1) => void): void;
-  setTurnListener(listener: (player: 0 | 1) => void): void;
+  setFallListener(listener: (winner: number) => void): void;
+  setTurnListener(listener: (player: number) => void): void;
   setAimListener(listener: (power: number) => void): void;
   setRoundListener(listener: (message: string | null) => void): void;
   setActionListener(listener: (action: ArenaAction) => void): void;
   setHitListener(listener: (intensity: number) => void): void;
-  setMatchMode(mode: MatchMode): void;
-  getArenaSnapshot(seq: number, score: readonly [number, number]): ArenaSnapshot;
+  setMatchMode(mode: MatchMode, playerCount?: number, playerNames?: readonly string[]): void;
+  getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot;
   applyArenaSnapshot(snapshot: ArenaSnapshot): void;
   setReplica(value: boolean): void;
 }
@@ -287,38 +287,55 @@ export function createClassroom(): ClassroomScene {
   bagRed.rotation.y = 0.34;
   group.add(bagRed);
 
+  const PEN_COLORS = ['#128de0', '#d94f35', '#1ea857', '#e69f00'] as const;
   const heroPens = new THREE.Group();
   heroPens.name = 'hero-pens';
-  const blue = createPen('#128de0');
+  const pens = [
+    createPen(PEN_COLORS[0]),
+    createPen(PEN_COLORS[1]),
+    createPen(PEN_COLORS[2]),
+    createPen(PEN_COLORS[3]),
+  ];
+  const blue = pens[0];
+  const red = pens[1];
+  const green = pens[2];
+  const gold = pens[3];
   blue.rotation.y = 1.08;
   blue.position.set(PLAYER_CORNER.x, 2.62, PLAYER_CORNER.z);
-  const red = createPen('#d94f35');
   red.rotation.y = -2.05;
   red.position.set(AI_CORNER.x, 2.64, AI_CORNER.z);
-  heroPens.add(blue, red);
+  green.rotation.y = -1.08;
+  green.position.set(-2.8, 2.62, -4.0);
+  gold.rotation.y = 2.05;
+  gold.position.set(2.8, 2.64, 4.6);
+  green.visible = false;
+  gold.visible = false;
+  heroPens.add(...pens);
   group.add(heroPens);
 
-  const blueStart = blue.position.clone();
-  const redStart = red.position.clone();
-  const blueVelocity = new THREE.Vector2();
-  const redVelocity = new THREE.Vector2();
+  const penVelocities = pens.map(() => new THREE.Vector2());
+  const penAngularVelocities = pens.map(() => 0);
+  const penWobbles = pens.map(() => 0);
+  const blueVelocity = penVelocities[0];
+  const redVelocity = penVelocities[1];
+  let activePlayerCount = 2;
+  let currentMatchPlayerNames: readonly string[] = ['Player 1', 'Player 2'];
+
   const turns = new SoloTurnController();
   let matchMode: MatchMode = 'quick';
   let shotAngle = 1.08;
   let aimPower = 0;
-  const aimOrigin = blueStart.clone();
+  const aimOrigin = blue.position.clone();
   let aimOriginAngle = blue.rotation.y;
   let aimActive = false;
-  let blueAngularVelocity = 0;
-  let redAngularVelocity = 0;
-  let fallListener: (winner: 0 | 1) => void = () => undefined;
-  let turnListener: (player: 0 | 1) => void = () => undefined;
+  let fallListener: (winner: number) => void = () => undefined;
+  let turnListener: (player: number) => void = () => undefined;
   let aimListener: (power: number) => void = () => undefined;
   let roundListener: (message: string | null) => void = () => undefined;
   let actionListener: (action: ArenaAction) => void = () => undefined;
   let falling: {
     pens: readonly THREE.Group[];
-    winner: 0 | 1 | null;
+    winner: number | null;
     elapsed: number;
     scored: boolean;
   } | null = null;
@@ -498,11 +515,9 @@ export function createClassroom(): ClassroomScene {
     }
   }
 
-  let blueWobble = 0;
-  let redWobble = 0;
   let hitListener: (intensity: number) => void = () => undefined;
 
-  const START_LAYOUTS: readonly {
+  const START_LAYOUTS_2P: readonly {
     blue: { x: number; z: number; angle: number };
     red: { x: number; z: number; angle: number };
   }[] = [
@@ -512,25 +527,69 @@ export function createClassroom(): ClassroomScene {
     { blue: { x: -3.4, z: 4.2, angle: 0.92 }, red: { x: 3.4, z: -3.6, angle: -2.22 } },
     { blue: { x: 1.6, z: 4.5, angle: 1.75 }, red: { x: -1.4, z: -4.6, angle: -1.38 } },
   ];
+
+  const START_LAYOUTS_4P: readonly { x: number; z: number; angle: number }[][] = [
+    [
+      { x: -2.8, z: 4.6, angle: 1.08 },
+      { x: 2.8, z: -4.0, angle: -2.05 },
+      { x: -2.8, z: -4.0, angle: -1.08 },
+      { x: 2.8, z: 4.6, angle: 2.05 },
+    ],
+    [
+      { x: 0, z: 5.1, angle: 1.57 },
+      { x: 0, z: -4.5, angle: -1.57 },
+      { x: -3.8, z: 0.4, angle: 0 },
+      { x: 3.8, z: 0.4, angle: 3.14 },
+    ],
+    [
+      { x: -3.2, z: 4.2, angle: 0.92 },
+      { x: 3.2, z: -3.6, angle: -2.22 },
+      { x: -1.8, z: -4.6, angle: -1.38 },
+      { x: 1.8, z: 4.5, angle: 1.75 },
+    ],
+  ];
+
   let roundIndex = 0;
-  let currentServer: 0 | 1 = 0;
+  let currentServer = 0;
 
   function resetPenPositions(varied = true): void {
-    const layout = (!varied || matchMode === 'practice')
-      ? START_LAYOUTS[0]
-      : START_LAYOUTS[roundIndex % START_LAYOUTS.length];
+    if (activePlayerCount === 2) {
+      const layout = (!varied || matchMode === 'practice')
+        ? START_LAYOUTS_2P[0]
+        : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length];
 
-    blue.position.set(layout.blue.x, 2.62, layout.blue.z);
-    red.position.set(layout.red.x, 2.64, layout.red.z);
-    blue.rotation.set(0, layout.blue.angle, 0);
-    red.rotation.set(0, layout.red.angle, 0);
-    blueVelocity.set(0, 0);
-    redVelocity.set(0, 0);
-    blueAngularVelocity = 0;
-    redAngularVelocity = 0;
+      blue.position.set(layout.blue.x, 2.62, layout.blue.z);
+      red.position.set(layout.red.x, 2.64, layout.red.z);
+      blue.rotation.set(0, layout.blue.angle, 0);
+      red.rotation.set(0, layout.red.angle, 0);
+      blue.visible = true;
+      red.visible = true;
+      green.visible = false;
+      gold.visible = false;
+    } else {
+      const layout = START_LAYOUTS_4P[roundIndex % START_LAYOUTS_4P.length];
+      for (let i = 0; i < pens.length; i++) {
+        if (i < activePlayerCount) {
+          const cfg = layout[i];
+          pens[i].position.set(cfg.x, 2.62 + i * 0.01, cfg.z);
+          pens[i].rotation.set(0, cfg.angle, 0);
+          pens[i].visible = true;
+        } else {
+          pens[i].visible = false;
+        }
+      }
+    }
+
+    for (let i = 0; i < pens.length; i++) {
+      penVelocities[i].set(0, 0);
+      penAngularVelocities[i] = 0;
+      penWobbles[i] = 0;
+    }
+
     aimPower = 0;
-    aimOrigin.copy(blue.position);
-    aimOriginAngle = blue.rotation.y;
+    const currentActivePen = activeHumanPen();
+    aimOrigin.copy(currentActivePen.position);
+    aimOriginAngle = currentActivePen.rotation.y;
     aimActive = false;
     aimListener(0);
     aimLine.visible = false;
@@ -540,8 +599,6 @@ export function createClassroom(): ClassroomScene {
     impactStar.visible = false;
     starTimer = 0;
     for (const s of sparks) { s.active = false; s.mesh.visible = false; }
-    blueWobble = 0;
-    redWobble = 0;
   }
 
   function launchAi(time: number): void {
@@ -553,35 +610,47 @@ export function createClassroom(): ClassroomScene {
     const strength = THREE.MathUtils.clamp(distance * 1.15 + 1.2, 4.2, 11.2);
     red.rotation.y = angle;
     redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
-    redAngularVelocity = error * 1.8;
+    penAngularVelocities[1] = error * 1.8;
     actionListener('aiMoving');
     turnListener(1);
   }
 
   function activeHumanPen(): THREE.Group {
-    return turns.activePlayer === 0 ? blue : red;
+    return pens[turns.activePlayer] ?? blue;
   }
 
   function inactiveHumanPen(): THREE.Group {
-    return turns.activePlayer === 0 ? red : blue;
+    const currentActive = activeHumanPen();
+    let bestDist = Infinity;
+    let target = pens[(turns.activePlayer + 1) % activePlayerCount] ?? red;
+    for (let i = 0; i < activePlayerCount; i++) {
+      if (i === turns.activePlayer || turns.isEliminated(i)) continue;
+      const d = currentActive.position.distanceTo(pens[i].position);
+      if (d < bestDist) {
+        bestDist = d;
+        target = pens[i];
+      }
+    }
+    return target;
   }
 
   function activeHumanVelocity(): THREE.Vector2 {
-    return turns.activePlayer === 0 ? blueVelocity : redVelocity;
+    return penVelocities[turns.activePlayer] ?? blueVelocity;
   }
 
   function stopActiveHumanSpin(): void {
-    if (turns.activePlayer === 0) blueAngularVelocity = 0;
-    else redAngularVelocity = 0;
+    if (penAngularVelocities[turns.activePlayer] !== undefined) {
+      penAngularVelocities[turns.activePlayer] = 0;
+    }
   }
 
   return {
     group,
     heroPens,
-    get activePlayer(): 0 | 1 { return turns.activePlayer; },
-    updateBoard(playerName: string, opponentName = 'AI rival', score: readonly [number, number] = [0, 0]) {
+    get activePlayer(): number { return turns.activePlayer; },
+    updateBoard(playerName: string, opponentName = 'AI rival', score: readonly number[] = [0, 0]) {
       const previous = boardMaterial.map;
-      boardMaterial.map = createBlackboardTexture(playerName, opponentName, score);
+      boardMaterial.map = createBlackboardTexture(playerName, opponentName, [score[0] ?? 0, score[1] ?? 0]);
       boardMaterial.needsUpdate = true;
       previous?.dispose();
     },
@@ -605,7 +674,7 @@ export function createClassroom(): ClassroomScene {
         if (fallState.elapsed >= 1.65) {
           falling = null;
           roundIndex += 1;
-          currentServer = currentServer === 0 ? 1 : 0;
+          currentServer = (currentServer + 1) % activePlayerCount;
           resetPenPositions(true);
           turns.finishPoint(currentServer);
           roundListener(null);
@@ -614,75 +683,93 @@ export function createClassroom(): ClassroomScene {
         }
         return;
       }
-      const activePen = turns.activePlayer === 0 ? blue : red;
+      const activePen = activeHumanPen();
       turnRing.visible = turns.phase === 'player' || turns.phase === 'aiWaiting';
       turnRing.position.x = activePen.position.x;
       turnRing.position.z = activePen.position.z;
-      turnRingMaterial.color.set(turns.activePlayer === 0 ? '#37aaff' : '#e65e3d');
+      turnRingMaterial.color.set(PEN_COLORS[turns.activePlayer] ?? '#37aaff');
       const ringPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.006) * 0.08;
       turnRing.scale.setScalar(ringPulse);
-      for (const [pen, velocity] of [[blue, blueVelocity], [red, redVelocity]] as const) {
+
+      for (let i = 0; i < activePlayerCount; i++) {
+        if (!pens[i].visible || turns.isEliminated(i)) continue;
+        const pen = pens[i];
+        const velocity = penVelocities[i];
         pen.position.x += velocity.x * delta;
         pen.position.z += velocity.y * delta;
         velocity.multiplyScalar(Math.exp(-2.05 * delta));
+        pen.rotation.y += penAngularVelocities[i] * delta;
+        penAngularVelocities[i] *= Math.exp(-2.35 * delta);
+
+        if (penWobbles[i] > 0.001) {
+          pen.position.y = (2.62 + i * 0.01) + Math.abs(Math.sin(time * 0.04)) * penWobbles[i];
+          pen.rotation.z += Math.sin(time * 0.05) * penWobbles[i] * 0.4;
+          penWobbles[i] = Math.max(0, penWobbles[i] - delta * 0.85);
+        } else {
+          pen.position.y = 2.62 + i * 0.01;
+          pen.rotation.z = 0;
+        }
       }
-      blue.rotation.y += blueAngularVelocity * delta;
-      red.rotation.y += redAngularVelocity * delta;
-      blueAngularVelocity *= Math.exp(-2.35 * delta);
-      redAngularVelocity *= Math.exp(-2.35 * delta);
-      const contact = capsuleContact(
-        { x: blue.position.x, y: blue.position.z }, blue.rotation.y,
-        { x: red.position.x, y: red.position.z }, red.rotation.y,
-        1.4, 0.16,
-      );
-      if (contact) {
-        const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
-        const relative = blueVelocity.clone().sub(redVelocity).dot(normal);
-        const correction = normal.clone().multiplyScalar(contact.penetration * 0.54);
-        blue.position.x -= correction.x;
-        blue.position.z -= correction.y;
-        red.position.x += correction.x;
-        red.position.z += correction.y;
-        if (relative > 0.25) {
-          const [nextBlue, nextRed] = resolveEqualMassCollision(
-            { x: blue.position.x, y: blue.position.z },
-            { x: red.position.x, y: red.position.z },
-            { x: blueVelocity.x, y: blueVelocity.y },
-            { x: redVelocity.x, y: redVelocity.y },
-            0.86,
-            contact.normal,
+
+      for (let i = 0; i < activePlayerCount; i++) {
+        if (turns.isEliminated(i) || !pens[i].visible) continue;
+        for (let j = i + 1; j < activePlayerCount; j++) {
+          if (turns.isEliminated(j) || !pens[j].visible) continue;
+          const contact = capsuleContact(
+            { x: pens[i].position.x, y: pens[i].position.z }, pens[i].rotation.y,
+            { x: pens[j].position.x, y: pens[j].position.z }, pens[j].rotation.y,
+            1.4, 0.16,
           );
-          blueVelocity.set(nextBlue.x, nextBlue.y);
-          redVelocity.set(nextRed.x, nextRed.y);
-          const tangent = new THREE.Vector2(-normal.y, normal.x);
-          const glancingSpeed = blueVelocity.clone().sub(redVelocity).dot(tangent);
-          blueAngularVelocity -= glancingSpeed * 0.13;
-          redAngularVelocity += glancingSpeed * 0.13;
+          if (contact) {
+            const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
+            const relative = penVelocities[i].clone().sub(penVelocities[j]).dot(normal);
+            const correction = normal.clone().multiplyScalar(contact.penetration * 0.54);
+            pens[i].position.x -= correction.x;
+            pens[i].position.z -= correction.y;
+            pens[j].position.x += correction.x;
+            pens[j].position.z += correction.y;
+            if (relative > 0.25) {
+              const [nextI, nextJ] = resolveEqualMassCollision(
+                { x: pens[i].position.x, y: pens[i].position.z },
+                { x: pens[j].position.x, y: pens[j].position.z },
+                { x: penVelocities[i].x, y: penVelocities[i].y },
+                { x: penVelocities[j].x, y: penVelocities[j].y },
+                0.86,
+                contact.normal,
+              );
+              penVelocities[i].set(nextI.x, nextI.y);
+              penVelocities[j].set(nextJ.x, nextJ.y);
+              const tangent = new THREE.Vector2(-normal.y, normal.x);
+              const glancingSpeed = penVelocities[i].clone().sub(penVelocities[j]).dot(tangent);
+              penAngularVelocities[i] -= glancingSpeed * 0.13;
+              penAngularVelocities[j] += glancingSpeed * 0.13;
 
-          const contactX = (blue.position.x + red.position.x) * 0.5;
-          const contactZ = (blue.position.z + red.position.z) * 0.5;
+              const contactX = (pens[i].position.x + pens[j].position.x) * 0.5;
+              const contactZ = (pens[i].position.z + pens[j].position.z) * 0.5;
 
-          shockwave.position.set(contactX, 2.585, contactZ);
-          shockwave.scale.setScalar(0.4);
-          shockwave.visible = true;
-          shockwaveTimer = 0.35;
-          (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
+              shockwave.position.set(contactX, 2.585, contactZ);
+              shockwave.scale.setScalar(0.4);
+              shockwave.visible = true;
+              shockwaveTimer = 0.35;
+              (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
 
-          impactStar.position.set(contactX, 2.61, contactZ);
-          impactStar.rotation.z = Math.random() * Math.PI;
-          impactStar.scale.setScalar(1.5);
-          impactStar.visible = true;
-          starTimer = 0.22;
-          (impactStar.material as THREE.MeshBasicMaterial).opacity = 1.0;
+              impactStar.position.set(contactX, 2.61, contactZ);
+              impactStar.rotation.z = Math.random() * Math.PI;
+              impactStar.scale.setScalar(1.5);
+              impactStar.visible = true;
+              starTimer = 0.22;
+              (impactStar.material as THREE.MeshBasicMaterial).opacity = 1.0;
 
-          spawnHitSparks(contactX, contactZ, normal, relative);
+              spawnHitSparks(contactX, contactZ, normal, relative);
 
-          const wobbleIntensity = THREE.MathUtils.clamp(relative * 0.045, 0.06, 0.24);
-          blueWobble = wobbleIntensity;
-          redWobble = wobbleIntensity;
+              const wobbleIntensity = THREE.MathUtils.clamp(relative * 0.045, 0.06, 0.24);
+              penWobbles[i] = wobbleIntensity;
+              penWobbles[j] = wobbleIntensity;
 
-          playPenClackSound(relative);
-          hitListener(relative);
+              playPenClackSound(relative);
+              hitListener(relative);
+            }
+          }
         }
       }
 
@@ -727,51 +814,88 @@ export function createClassroom(): ClassroomScene {
         (spark.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, sparkRatio * 1.4);
       }
 
-      if (blueWobble > 0.001) {
-        blue.position.y = 2.62 + Math.abs(Math.sin(time * 0.04)) * blueWobble;
-        blue.rotation.z += Math.sin(time * 0.05) * blueWobble * 0.4;
-        blueWobble = Math.max(0, blueWobble - delta * 0.85);
+      if (activePlayerCount === 2) {
+        const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y, 1.4);
+        const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y, 1.4);
+        const winner = knockoutWinner(blueOut, redOut);
+        if (winner !== null) {
+          falling = winner === 'draw'
+            ? { pens: [blue, red], winner: null, elapsed: 0, scored: false }
+            : { pens: [winner === 0 ? red : blue], winner, elapsed: 0, scored: false };
+          actionListener('roundReset');
+          roundListener(
+            winner === 'draw'
+              ? 'Double fall — replay the point'
+              : matchMode === 'local'
+                ? `Knockout — ${currentMatchPlayerNames[winner] ?? `Player ${winner + 1}`} scores`
+                : winner === 0
+                  ? 'Knockout — your point!'
+                  : 'Knockout — rival scores',
+          );
+          blueVelocity.set(0, 0);
+          redVelocity.set(0, 0);
+          penAngularVelocities[0] = 0;
+          penAngularVelocities[1] = 0;
+          aimListener(0);
+          aimLine.visible = false;
+          aimHead.visible = false;
+          turns.startFall();
+          return;
+        }
       } else {
-        blue.position.y = 2.62;
-        blue.rotation.z = 0;
+        const newlyFallen: number[] = [];
+        for (let i = 0; i < activePlayerCount; i++) {
+          if (turns.isEliminated(i) || !pens[i].visible) continue;
+          if (penHasFallen(pens[i].position.x, pens[i].position.z, pens[i].rotation.y, 1.4)) {
+            turns.eliminatePlayer(i);
+            newlyFallen.push(i);
+          }
+        }
+        if (newlyFallen.length > 0) {
+          if (turns.remainingPlayerCount <= 1) {
+            const surviving = turns.survivingPlayers;
+            const winner: number | null = surviving.length === 1 ? surviving[0] : null;
+            falling = {
+              pens: newlyFallen.map((idx) => pens[idx]),
+              winner,
+              elapsed: 0,
+              scored: false,
+            };
+            actionListener('roundReset');
+            roundListener(
+              winner === null
+                ? 'Draw round — replay the point'
+                : `Knockout — ${currentMatchPlayerNames[winner] ?? `Player ${winner + 1}`} scores`,
+            );
+            for (let i = 0; i < activePlayerCount; i++) {
+              penVelocities[i].set(0, 0);
+              penAngularVelocities[i] = 0;
+            }
+            aimListener(0);
+            aimLine.visible = false;
+            aimHead.visible = false;
+            turns.startFall();
+            return;
+          } else {
+            const eliminatedNames = newlyFallen.map((idx) => currentMatchPlayerNames[idx] ?? `Player ${idx + 1}`).join(', ');
+            roundListener(`Knockout — ${eliminatedNames} eliminated!`);
+            for (const idx of newlyFallen) {
+              pens[idx].position.y = -5;
+              penVelocities[idx].set(0, 0);
+            }
+          }
+        }
       }
-      if (redWobble > 0.001) {
-        red.position.y = 2.64 + Math.abs(Math.cos(time * 0.042)) * redWobble;
-        red.rotation.z -= Math.sin(time * 0.05) * redWobble * 0.4;
-        redWobble = Math.max(0, redWobble - delta * 0.85);
-      } else {
-        red.position.y = 2.64;
-        red.rotation.z = 0;
+
+      let totalSpeed = 0;
+      for (let i = 0; i < activePlayerCount; i++) {
+        if (pens[i].visible && !turns.isEliminated(i)) {
+          totalSpeed += penVelocities[i].length();
+        }
       }
-      const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y, 1.4);
-      const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y, 1.4);
-      const winner = knockoutWinner(blueOut, redOut);
-      if (winner !== null) {
-        falling = winner === 'draw'
-          ? { pens: [blue, red], winner: null, elapsed: 0, scored: false }
-          : { pens: [winner === 0 ? red : blue], winner, elapsed: 0, scored: false };
-        actionListener('roundReset');
-        roundListener(
-          winner === 'draw'
-            ? 'Double fall — replay the point'
-            : matchMode === 'local'
-              ? `Knockout — Player ${winner + 1} scores`
-              : winner === 0
-                ? 'Knockout — your point!'
-                : 'Knockout — rival scores',
-        );
-        blueVelocity.set(0, 0);
-        redVelocity.set(0, 0);
-        blueAngularVelocity = 0;
-        redAngularVelocity = 0;
-        aimListener(0);
-        aimLine.visible = false;
-        aimHead.visible = false;
-        turns.startFall();
-        return;
-      }
+
       const previousTurnPhase = turns.phase;
-      const action = turns.tick(delta, blueVelocity.length() + redVelocity.length());
+      const action = turns.tick(delta, totalSpeed);
       if (previousTurnPhase === 'playerMoving' && turns.phase === 'aiWaiting') {
         turnListener(1);
         actionListener('aiWaiting');
@@ -779,10 +903,10 @@ export function createClassroom(): ClassroomScene {
       if (action === 'aiFlick') {
         launchAi(time);
       } else if (action === 'playerReady') {
-        blueVelocity.set(0, 0);
-        redVelocity.set(0, 0);
-        blueAngularVelocity = 0;
-        redAngularVelocity = 0;
+        for (let i = 0; i < activePlayerCount; i++) {
+          penVelocities[i].set(0, 0);
+          penAngularVelocities[i] = 0;
+        }
         turnListener(turns.activePlayer);
         actionListener('ready');
       }
@@ -886,10 +1010,10 @@ export function createClassroom(): ClassroomScene {
       }
       return false;
     },
-    setFallListener(listener: (winner: 0 | 1) => void) {
+    setFallListener(listener: (winner: number) => void) {
       fallListener = listener;
     },
-    setTurnListener(listener: (player: 0 | 1) => void) {
+    setTurnListener(listener: (player: number) => void) {
       turnListener = listener;
     },
     setAimListener(listener: (power: number) => void) {
@@ -904,20 +1028,24 @@ export function createClassroom(): ClassroomScene {
     setHitListener(listener: (intensity: number) => void) {
       hitListener = listener;
     },
-    setMatchMode(mode: MatchMode) {
+    setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[]) {
       matchMode = mode;
+      activePlayerCount = Math.max(2, Math.min(4, playerCount));
+      currentMatchPlayerNames = playerNames && playerNames.length >= activePlayerCount
+        ? playerNames
+        : Array.from({ length: activePlayerCount }, (_, i) => `Player ${i + 1}`);
       roundIndex = 0;
       currentServer = 0;
-      turns.begin(mode, 0);
+      turns.begin(mode, 0, activePlayerCount);
       resetPenPositions(true);
       actionListener('ready');
       turnListener(0);
     },
     getArenaSnapshot(seq, score) {
       return { seq, pens: [
-        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: blueAngularVelocity },
-        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: redAngularVelocity },
-      ], score: [score[0], score[1]], currentPlayer: turns.activePlayer, phase: falling ? 'falling' : turns.phase };
+        { x: blue.position.x, y: blue.position.y, z: blue.position.z, angle: blue.rotation.y, rotationX: blue.rotation.x, rotationZ: blue.rotation.z, velocityX: blueVelocity.x, velocityZ: blueVelocity.y, angularVelocity: penAngularVelocities[0] },
+        { x: red.position.x, y: red.position.y, z: red.position.z, angle: red.rotation.y, rotationX: red.rotation.x, rotationZ: red.rotation.z, velocityX: redVelocity.x, velocityZ: redVelocity.y, angularVelocity: penAngularVelocities[1] },
+      ], score: [score[0] ?? 0, score[1] ?? 0], currentPlayer: (turns.activePlayer as 0 | 1), phase: falling ? 'falling' : turns.phase };
     },
     applyArenaSnapshot(snapshot) {
       const [blueState, redState] = snapshot.pens;

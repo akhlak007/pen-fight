@@ -7,7 +7,7 @@ export interface UiActions {
   onSaveName(name: string): void;
   onPlay(): void;
   onPlayFriend(): void;
-  onStartLocal(rivalName: string): void;
+  onStartLocal(rivalName: string | readonly string[]): void;
   onCreateOnline(): void;
   onJoinOnline(room: string): void;
   onCopyInvite(): void;
@@ -440,18 +440,58 @@ export class UiRoot {
       this.#layer.innerHTML = `<div class="local-setup-screen">
         <div class="top-bar"><button class="glass-button back-button" type="button">← BACK</button></div>
         <section class="paper local-setup-card" aria-labelledby="local-setup-title">
-          <p class="eyebrow">FRIEND MATCH · TWO PLAYERS</p>
+          <p class="eyebrow">FRIEND MATCH · LOCAL DESK</p>
           <h1 id="local-setup-title">Choose your rival</h1>
           <p class="local-player-one"><span>PLAYER 1 · BLUE PEN</span><strong>${escapeText(state.player.name)}</strong></p>
           ${onlineBusy ? `<section class="online-room" aria-live="polite"><span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : 'ONLINE INVITE'}</span>${room ? `<strong class="room-code">${escapeText(room)}</strong><p>Send this link to your friend. They only need to open it.</p><button class="paper-button copy-invite" type="button">Copy invite link</button>` : '<p>Opening a classroom online…</p>'}${this.#online.error ? `<p class="form-error">${escapeText(this.#online.error)}</p>` : ''}</section>` : `<div class="friend-mode-grid"><button class="friend-mode active" data-friend-mode="local" type="button"><strong>Same device</strong><small>Take turns at this desk</small></button><button class="friend-mode" data-friend-mode="online" type="button"><strong>Online invite</strong><small>Each friend uses a device</small></button></div>
           <form class="local-setup-form">
-            <label for="rival-name">Player 2 name</label>
-            <div class="input-line"><input id="rival-name" name="rivalName" maxlength="18" autocomplete="off" placeholder="Who is taking the red pen?" autofocus><span class="pencil-mark">✎</span></div>
+            <div class="player-count-picker-group">
+              <span class="picker-label">Number of players</span>
+              <div class="player-count-picker" role="radiogroup" aria-label="Number of players">
+                <button type="button" class="player-count-btn active" data-count="2" aria-pressed="true">2 Players</button>
+                <button type="button" class="player-count-btn" data-count="3" aria-pressed="false">3 Players</button>
+                <button type="button" class="player-count-btn" data-count="4" aria-pressed="false">4 Players</button>
+              </div>
+            </div>
+
+            <div class="player-input-row" data-player-field="2">
+              <label for="rival-name">Player 2 name</label>
+              <div class="input-line"><input id="rival-name" name="rivalName" maxlength="18" autocomplete="off" placeholder="Who is taking the red pen?" autofocus><span class="pencil-mark">✎</span></div>
+            </div>
+
+            <div class="player-input-row" data-player-field="3" hidden>
+              <label for="player-3-name">Player 3 name</label>
+              <div class="input-line"><input id="player-3-name" name="player3Name" maxlength="18" autocomplete="off" placeholder="Who is taking the green pen?"><span class="pencil-mark">✎</span></div>
+            </div>
+
+            <div class="player-input-row" data-player-field="4" hidden>
+              <label for="player-4-name">Player 4 name</label>
+              <div class="input-line"><input id="player-4-name" name="player4Name" maxlength="18" autocomplete="off" placeholder="Who is taking the gold pen?"><span class="pencil-mark">✎</span></div>
+            </div>
+
             <p class="form-error" role="alert"></p>
             <button class="paper-button primary" type="submit">Start local match <span>→</span></button>
           </form><section class="online-choice" hidden><p>Create a private room and share one link—no account required.</p><button class="paper-button primary create-online" type="button">Create invite link <span>→</span></button><form class="join-room-form"><label for="room-code">Or enter a room code</label><div class="input-line"><input id="room-code" maxlength="6" placeholder="ABC234"><button type="submit">JOIN</button></div></form></section>`}
         </section>
       </div>`;
+      let selectedPlayerCount = 2;
+      const countButtons = this.#layer.querySelectorAll<HTMLButtonElement>('.player-count-btn');
+      countButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const count = Number(btn.dataset.count ?? '2');
+          selectedPlayerCount = count;
+          countButtons.forEach((b) => {
+            const active = b === btn;
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+          });
+          const row3 = this.#layer.querySelector<HTMLElement>('[data-player-field="3"]');
+          const row4 = this.#layer.querySelector<HTMLElement>('[data-player-field="4"]');
+          if (row3) row3.hidden = count < 3;
+          if (row4) row4.hidden = count < 4;
+          if (error) error.textContent = '';
+        });
+      });
       const form = this.#layer.querySelector<HTMLFormElement>('.local-setup-form');
       const input = this.#layer.querySelector<HTMLInputElement>('#rival-name');
       const error = this.#layer.querySelector<HTMLElement>('.form-error');
@@ -474,7 +514,34 @@ export class UiRoot {
           input?.focus();
           return;
         }
-        this.actions.onStartLocal(rivalName);
+
+        if (selectedPlayerCount === 2) {
+          this.actions.onStartLocal(rivalName);
+          return;
+        }
+
+        const p3Input = this.#layer.querySelector<HTMLInputElement>('#player-3-name');
+        const p3Name = p3Input?.value.trim() ?? '';
+        if (!p3Name) {
+          if (error) error.textContent = 'Write Player 3’s name before starting.';
+          p3Input?.focus();
+          return;
+        }
+
+        if (selectedPlayerCount === 3) {
+          this.actions.onStartLocal([rivalName, p3Name]);
+          return;
+        }
+
+        const p4Input = this.#layer.querySelector<HTMLInputElement>('#player-4-name');
+        const p4Name = p4Input?.value.trim() ?? '';
+        if (!p4Name) {
+          if (error) error.textContent = 'Write Player 4’s name before starting.';
+          p4Input?.focus();
+          return;
+        }
+
+        this.actions.onStartLocal([rivalName, p3Name, p4Name]);
       });
       this.#layer.querySelector<HTMLElement>('.local-setup-screen')?.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') goBack();
@@ -509,22 +576,32 @@ export class UiRoot {
       const rivalName = local || online
         ? state.match?.rivalName ?? 'PLAYER 2'
         : state.match?.rivalName ?? 'CLASS ACE';
-      const activeName = activePlayer === 0 ? state.player.name : rivalName;
+
+      const playerNames: readonly string[] = state.match?.playerNames && state.match.playerNames.length > 0
+        ? state.match.playerNames
+        : [state.player.name, rivalName];
+
+      const activeName = playerNames[activePlayer] ?? (activePlayer === 0 ? state.player.name : rivalName);
       const paused = state.phase === 'paused';
       const roundLocked = Boolean(this.#roundMessage);
-      const defaultTurnTitle = aiTurn ? 'RIVAL IS AIMING' : practice ? 'PRACTICE SHOT' : local || online ? `${activeName.toUpperCase()}’S TURN` : 'YOUR TURN';
-      const defaultTurnHint = aiTurn ? 'Watch the table edge' : `Grab the ${activePlayer === 0 ? 'blue' : 'red'} pen · pull back · release`;
+      const PEN_COLOR_NAMES = ['blue', 'red', 'green', 'gold'] as const;
+      const penColor = PEN_COLOR_NAMES[activePlayer] ?? 'blue';
+      const defaultTurnTitle = aiTurn
+        ? 'RIVAL IS AIMING'
+        : practice
+          ? 'PRACTICE SHOT'
+          : local || online
+            ? `${activeName.toUpperCase()}’S TURN`
+            : 'YOUR TURN';
+      const defaultTurnHint = aiTurn
+        ? 'Watch the table edge'
+        : `Grab the ${penColor} pen · pull back · release`;
       const [actionTitle, actionHint] = arenaStatus(this.#arenaAction, defaultTurnTitle, defaultTurnHint);
       const turnTitle = paused ? 'MATCH PAUSED' : roundLocked ? 'ROUND RESETTING' : actionTitle;
       const turnHint = paused ? 'Return to the game to continue' : roundLocked ? this.#roundMessage! : actionHint;
-      const playerScore = state.match?.score[0] ?? 0;
-      const rivalScore = state.match?.score[1] ?? 0;
-
-      const badgeTurnText = actionTitle === 'playerMoving' || actionTitle === 'aiMoving'
-        ? 'SHOT IN MOTION'
-        : activePlayer === 0
-          ? 'your turn'
-          : `${rivalName.toLowerCase()}’s turn`;
+      const scores = state.match?.score ?? [0, 0];
+      const playerScore = scores[0] ?? 0;
+      const rivalScore = scores[1] ?? 0;
 
       this.#layer.innerHTML = `
         <!-- Match Top Navigation Bar -->
@@ -553,8 +630,8 @@ export class UiRoot {
           <span class="pilot-version">Pilot V5</span>
         </div>
 
-        <!-- Bottom Right Sticky Badge (Matches Screenshot: 👉 your turn) -->
-        <section class="turn-dock desk-turn-sticker ${activePlayer === 1 ? 'rival-turn' : ''} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
+        <!-- Bottom Right Sticky Badge -->
+        <section class="turn-dock desk-turn-sticker ${activePlayer > 0 ? 'rival-turn' : ''} turn-player-${activePlayer} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
           <span class="sticker-hand" aria-hidden="true">👉</span>
           <div class="turn-copy">
             <strong>${escapeText(turnTitle)}</strong>
@@ -574,19 +651,28 @@ export class UiRoot {
             <b class="power-percent">${Math.round(this.#aimPower * 100)}%</b>
           </section>
 
-          <section class="scoreboard match-clean-scoreboard" aria-label="Match score">
-            <div class="competitor player ${activePlayer === 0 ? 'active' : ''}">
-              <span class="pen-swatch blue"></span>
-              <span class="competitor-copy"><small>${local || online ? 'PLAYER 1' : 'YOU'}</small><strong>${escapeText(state.player.name)}</strong></span>
-              <span class="score-pips" aria-hidden="true">${scorePips(playerScore)}</span>
-              <b>${playerScore}</b>
-            </div>
-            <div class="competitor rival ${activePlayer === 1 ? 'active' : ''}">
-              <b>${rivalScore}</b>
-              <span class="score-pips" aria-hidden="true">${scorePips(rivalScore)}</span>
-              <span class="competitor-copy"><small>${local || online ? 'PLAYER 2' : 'RIVAL'}</small><strong>${escapeText(rivalName)}</strong></span>
-              <span class="pen-swatch red"></span>
-            </div>
+          <section class="scoreboard match-clean-scoreboard ${playerNames.length > 2 ? 'multi-player' : ''}" aria-label="Match score">
+            ${playerNames.length > 2 ? playerNames.map((name, idx) => `
+              <div class="competitor competitor-${idx} ${activePlayer === idx ? 'active' : ''}">
+                <span class="pen-swatch ${PEN_COLOR_NAMES[idx] ?? 'blue'}"></span>
+                <span class="competitor-copy"><small>PLAYER ${idx + 1}</small><strong>${escapeText(name)}</strong></span>
+                <span class="score-pips" aria-hidden="true">${scorePips(scores[idx] ?? 0)}</span>
+                <b>${scores[idx] ?? 0}</b>
+              </div>
+            `).join('') : `
+              <div class="competitor player ${activePlayer === 0 ? 'active' : ''}">
+                <span class="pen-swatch blue"></span>
+                <span class="competitor-copy"><small>${local || online ? 'PLAYER 1' : 'YOU'}</small><strong>${escapeText(playerNames[0] ?? state.player.name)}</strong></span>
+                <span class="score-pips" aria-hidden="true">${scorePips(playerScore)}</span>
+                <b>${playerScore}</b>
+              </div>
+              <div class="competitor rival ${activePlayer === 1 ? 'active' : ''}">
+                <b>${rivalScore}</b>
+                <span class="score-pips" aria-hidden="true">${scorePips(rivalScore)}</span>
+                <span class="competitor-copy"><small>${local || online ? 'PLAYER 2' : 'RIVAL'}</small><strong>${escapeText(playerNames[1] ?? rivalName)}</strong></span>
+                <span class="pen-swatch red"></span>
+              </div>
+            `}
           </section>
         </div>
       `;
@@ -612,12 +698,23 @@ export class UiRoot {
     }
 
     if (state.phase === 'result') {
-      const won = (state.match?.score[0] ?? 0) > (state.match?.score[1] ?? 0);
-      const rivalName = state.match?.mode === 'local' || state.match?.mode === 'online' ? state.match.rivalName ?? 'Player 2' : 'Class rival';
+      const scores = state.match?.score ?? [0, 0];
+      const maxScore = Math.max(...scores);
+      const winningIndex = scores.indexOf(maxScore);
+      const playerNames = state.match?.playerNames && state.match.playerNames.length > 0
+        ? state.match.playerNames
+        : [state.player.name, state.match?.rivalName ?? 'Player 2'];
+      const won = winningIndex === 0;
+      const winnerName = playerNames[winningIndex] ?? state.player.name;
+      const isMulti = playerNames.length > 2;
+
       this.#layer.innerHTML = `<section class="paper result-card" role="dialog" aria-modal="true" aria-labelledby="result-title">
         <p class="eyebrow">FINAL BELL</p>
-        <h1 id="result-title">${won ? 'Desk champion!' : 'Rematch?'}</h1>
-        <p>${escapeText(state.player.name)} <strong>${state.match?.score[0] ?? 0} : ${state.match?.score[1] ?? 0}</strong> ${escapeText(rivalName)}</p>
+        <h1 id="result-title">${isMulti ? `${escapeText(winnerName)} is Champion!` : won ? 'Desk champion!' : 'Rematch?'}</h1>
+        <p>${isMulti
+          ? playerNames.map((name, i) => `${escapeText(name)}: <strong>${scores[i] ?? 0}</strong>`).join(' · ')
+          : `${escapeText(playerNames[0])} <strong>${scores[0] ?? 0} : ${scores[1] ?? 0}</strong> ${escapeText(playerNames[1])}`
+        }</p>
         <div class="result-actions"><button class="paper-button primary rematch" type="button">Flick again →</button><button class="text-button result-exit" type="button">Back to classroom</button></div>
       </section>`;
       this.#layer.querySelector('.rematch')?.addEventListener('click', this.actions.onRematch);

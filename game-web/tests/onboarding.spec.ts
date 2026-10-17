@@ -109,6 +109,39 @@ test('local match hands control from the blue pen to the red pen and back', asyn
   await expect(page.getByLabel('Turn status')).toContainText(/Rafi.*turn/i, { timeout: 6000 });
 });
 
+test('supports 4 players in same-device local match', async ({ page }) => {
+  await page.getByLabel('Your name').fill('Rafi');
+  await page.getByRole('button', { name: /Claim my desk/ }).click();
+  await page.getByRole('button', { name: /FRIEND/ }).click();
+
+  await page.getByRole('button', { name: '4 Players' }).click();
+  await page.getByLabel('Player 2 name').fill('Priya');
+  await page.getByLabel('Player 3 name').fill('Dev');
+  await page.getByLabel('Player 4 name').fill('Sam');
+  await page.getByRole('button', { name: /Start local match/ }).click();
+
+  const scoreboard = page.getByLabel('Match score');
+  await expect(scoreboard).toContainText('Rafi');
+  await expect(scoreboard).toContainText('Priya');
+  await expect(scoreboard).toContainText('Dev');
+  await expect(scoreboard).toContainText('Sam');
+  await expect(page.getByLabel('Turn status')).toContainText(/Rafi.*turn/i);
+
+  const arena = page.getByLabel(/3D classroom arena/);
+  await arena.focus();
+  await arena.press('ArrowUp');
+  await arena.press('Space');
+  await expect(page.getByLabel('Turn status')).toContainText(/Priya.*turn/i, { timeout: 6000 });
+
+  await arena.press('ArrowUp');
+  await arena.press('Space');
+  await expect(page.getByLabel('Turn status')).toContainText(/Dev.*turn/i, { timeout: 6000 });
+
+  await arena.press('ArrowUp');
+  await arena.press('Space');
+  await expect(page.getByLabel('Turn status')).toContainText(/Sam.*turn/i, { timeout: 6000 });
+});
+
 test('pulling the selected pen charges and releases a flick', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel('Your name').fill('Rafi');

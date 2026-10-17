@@ -91,16 +91,25 @@ export class AppStore {
     });
   }
 
-  startLocalMatch(value: string): void {
+  startLocalMatch(value: string | readonly string[]): void {
     if (this.#state.phase !== 'settingUpLocal') {
       throw new Error(`Cannot start a local match from ${this.#state.phase}.`);
     }
-    const rivalName = value.trim().slice(0, 18);
-    if (!rivalName) throw new Error('Second player name cannot be empty.');
+    const rivals = Array.isArray(value) ? value : [value];
+    const cleanedRivals = rivals.map((name) => name.trim().slice(0, 18)).filter(Boolean);
+    if (cleanedRivals.length === 0) throw new Error('Second player name cannot be empty.');
+    const playerNames = [this.#state.player.name, ...cleanedRivals];
+    const score = playerNames.map(() => 0);
     this.#publish({
       ...this.#state,
       phase: 'match',
-      match: { score: [0, 0], currentPlayer: 0, mode: 'local', rivalName },
+      match: {
+        score,
+        currentPlayer: 0,
+        mode: 'local',
+        rivalName: cleanedRivals[0],
+        playerNames,
+      },
     });
   }
 
@@ -111,11 +120,13 @@ export class AppStore {
     this.#publish({ ...this.#state, phase: 'match', match: { score: [0, 0], currentPlayer: 0, mode: 'online', rivalName: rival } });
   }
 
-  recordPoint(winner: 0 | 1): void {
+  recordPoint(winner: number): void {
     const match = this.#state.match;
     if (this.#state.phase !== 'match' || !match || match.mode === 'practice') return;
-    const score: [number, number] = [...match.score];
-    score[winner] += 1;
+    const score = [...match.score];
+    if (winner >= 0 && winner < score.length) {
+      score[winner] += 1;
+    }
     this.#publish({
       ...this.#state,
       phase: score[winner] >= 2 ? 'result' : 'match',
@@ -123,7 +134,7 @@ export class AppStore {
     });
   }
 
-  setMatchTurn(player: 0 | 1): void {
+  setMatchTurn(player: number): void {
     const match = this.#state.match;
     if (this.#state.phase !== 'match' || !match || match.currentPlayer === player) return;
     this.#publish({ ...this.#state, match: { ...match, currentPlayer: player } });

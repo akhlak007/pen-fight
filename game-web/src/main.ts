@@ -75,9 +75,10 @@ const ui = new UiRoot(store, {
   },
   onStartLocal(rivalName) {
     store.startLocalMatch(rivalName);
+    const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.focusArena();
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode('local');
+    renderer?.setMatchMode('local', playerCount, store.snapshot.match?.playerNames);
   },
   onCreateOnline() { online.create(store.snapshot.player.name); },
   onJoinOnline(room) { online.join(room, store.snapshot.player.name); },
@@ -100,14 +101,19 @@ const ui = new UiRoot(store, {
     store.startMatch(mode);
     renderer?.focusArena();
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode(mode);
+    renderer?.setMatchMode(mode, 2);
   },
   onRematch() {
     const match = store.snapshot.match;
     const mode = match?.mode ?? 'quick';
-    store.startMatch(mode, match?.rivalName);
+    if (mode === 'local' && match?.playerNames && match.playerNames.length > 2) {
+      store.startLocalMatch(match.playerNames.slice(1));
+    } else {
+      store.startMatch(mode, match?.rivalName);
+    }
+    const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode(mode);
+    renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames);
     if (mode === 'online') renderer?.setReplica(online.state.seat === 'guest');
   },
   onEditName() {

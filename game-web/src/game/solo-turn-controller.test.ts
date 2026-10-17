@@ -81,4 +81,53 @@ describe('SoloTurnController', () => {
     expect(turns.phase).toBe('aiMoving');
     expect(turns.playerFlicked()).toBe(false);
   });
+
+  it('rotates through 4 players in local mode', () => {
+    const turns = new SoloTurnController();
+    turns.begin('local', 0, 4);
+    expect(turns.activePlayer).toBe(0);
+
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(1);
+
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(2);
+
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(3);
+
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(0);
+  });
+
+  it('skips eliminated players in 4-player local mode', () => {
+    const turns = new SoloTurnController();
+    turns.begin('local', 0, 4);
+    expect(turns.activePlayer).toBe(0);
+
+    // Player 1 gets eliminated
+    turns.eliminatePlayer(1);
+    expect(turns.isEliminated(1)).toBe(true);
+    expect(turns.remainingPlayerCount).toBe(3);
+
+    // Player 0 flicks
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    // Player 1 is skipped, goes directly to player 2
+    expect(turns.activePlayer).toBe(2);
+
+    // Player 3 gets eliminated
+    turns.eliminatePlayer(3);
+    expect(turns.remainingPlayerCount).toBe(2);
+
+    // Player 2 flicks
+    turns.playerFlicked();
+    expect(turns.tick(0.29, 0)).toBe('playerReady');
+    // Player 3 is skipped, goes back to player 0
+    expect(turns.activePlayer).toBe(0);
+  });
 });

@@ -127,6 +127,25 @@ describe('match rules', () => {
     store.startMatch('local', 'Priya');
     expect(store.snapshot.match).toMatchObject({ mode: 'local', rivalName: 'Priya', score: [0, 0] });
   });
+
+  it('supports 4 players in local match mode', () => {
+    const store = new AppStore();
+    store.setPlayerName('Rafi');
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startLocalMatch(['Priya', 'Dev', 'Sam']);
+
+    expect(store.snapshot.phase).toBe('match');
+    expect(store.snapshot.match?.playerNames).toEqual(['Rafi', 'Priya', 'Dev', 'Sam']);
+    expect(store.snapshot.match?.score).toEqual([0, 0, 0, 0]);
+
+    // Record point for player 3 (Dev, index 2)
+    store.recordPoint(2);
+    expect(store.snapshot.match?.score).toEqual([0, 0, 1, 0]);
+    store.recordPoint(2);
+    expect(store.snapshot.phase).toBe('result');
+    expect(store.snapshot.match?.score).toEqual([0, 0, 2, 0]);
+  });
 });
 
 describe('attachLifecycle', () => {

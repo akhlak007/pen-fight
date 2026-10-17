@@ -79,8 +79,8 @@ export class GameRenderer {
     });
     canvas.addEventListener('keydown', (event) => {
       if (!this.#matchEnabled || this.#suspended) return;
-      const isRivalPlayer = this.#classroom.activePlayer === 1;
-      const directions: Partial<Record<string, readonly [number, number]>> = isRivalPlayer
+      const isTopSide = this.#classroom.activePlayer === 1 || this.#classroom.activePlayer === 2;
+      const directions: Partial<Record<string, readonly [number, number]>> = isTopSide
         ? {
             ArrowLeft: [-1, 0],
             ArrowRight: [1, 0],
@@ -153,20 +153,22 @@ export class GameRenderer {
   }
 
   setPlayerName(name: string): void { this.#classroom.updateBoard(name); }
-  setBoardState(name: string, opponentName: string, score: readonly [number, number]): void {
+  setBoardState(name: string, opponentName: string, score: readonly number[]): void {
     this.#classroom.updateBoard(name, opponentName, score);
   }
   setReducedMotion(value: boolean): void { this.#reducedMotion = value; }
-  setPointListener(listener: (winner: 0 | 1) => void): void { this.#classroom.setFallListener(listener); }
-  setTurnListener(listener: (player: 0 | 1) => void): void { this.#classroom.setTurnListener(listener); }
+  setPointListener(listener: (winner: number) => void): void { this.#classroom.setFallListener(listener); }
+  setTurnListener(listener: (player: number) => void): void { this.#classroom.setTurnListener(listener); }
   setAimListener(listener: (power: number) => void): void { this.#classroom.setAimListener(listener); }
   setRoundListener(listener: (message: string | null) => void): void { this.#classroom.setRoundListener(listener); }
   setActionListener(listener: (action: ArenaAction) => void): void { this.#classroom.setActionListener(listener); }
-  setMatchMode(mode: MatchMode): void { this.#classroom.setMatchMode(mode); }
+  setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[]): void {
+    this.#classroom.setMatchMode(mode, playerCount, playerNames);
+  }
   setReplica(value: boolean): void { this.#classroom.setReplica(value); }
   setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
   applyArenaSnapshot(snapshot: ArenaSnapshot): void { this.#classroom.applyArenaSnapshot(snapshot); }
-  getArenaSnapshot(seq: number, score: readonly [number, number]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
+  getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
   remoteInput(action: 'aim' | 'flick' | 'cancel', x?: number, y?: number): void {
     if (action === 'aim' && x !== undefined && y !== undefined) this.#classroom.aim(x, y);
     else if (action === 'flick') this.#classroom.flick();
