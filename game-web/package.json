@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n WEB,ROOM -c blue,red \"vite\" \"tsx watch server/index.ts\"",
-    "dev:web": "vite",
-    "dev:server": "tsx watch server/index.ts",
+    "dev": "npx concurrently -k -n WEB,ROOM -c blue,red \"npx vite\" \"npx tsx watch server/index.ts\"",
+    "dev:web": "npx vite",
+    "dev:server": "npx tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
