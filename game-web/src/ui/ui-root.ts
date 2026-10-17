@@ -82,69 +82,277 @@ export class UiRoot {
       const hasName = Boolean(state.player.name);
       const displayName = hasName ? state.player.name.toUpperCase() : 'NEW PLAYER';
       const inputValue = this.#nameDraft ?? state.player.name;
-      this.#layer.innerHTML = `<section class="notebook-home ${hasName ? 'has-player' : 'needs-player'}" role="region" aria-labelledby="home-title">
-        <div class="notebook-spread">
-          <div class="notebook-page notebook-left">
-            <header class="notebook-brand">
-              <span class="pen-logo" aria-hidden="true"><i></i><b></b></span>
-              <strong>PEN FIGHT</strong><small>DESK LEAGUE</small>
-            </header>
-            <section class="player-intro">
-              <p class="notebook-kicker">WELCOME TO PEN FIGHT</p>
-              <h1 id="home-title">Welcome to Pen Fight</h1>
-              <strong class="player-display">${escapeText(displayName)}</strong>
-              <form class="home-name-form">
-                <label for="player-name">Your name</label>
-                <div class="notebook-name-line">
-                  <input id="player-name" name="name" maxlength="18" autocomplete="nickname" placeholder="Write your name" value="${escapeText(inputValue)}" ${hasName ? '' : 'autofocus'}>
-                  <button type="submit">${hasName ? 'UPDATE' : 'Claim my desk'} <span aria-hidden="true">→</span></button>
+      this.#layer.innerHTML = `
+        <!-- Classroom Desk Header Bar -->
+        <header class="desk-top-bar" aria-label="Classroom navigation">
+          <div class="pilot-badge-corner" aria-label="Pen Fight Pilot V5">
+            <span class="pilot-box"><span class="pilot-pen-icon" aria-hidden="true"></span>PEN FIGHT</span>
+            <span class="pilot-version">Pilot V5</span>
+          </div>
+          <div class="top-nav-actions">
+            <button type="button" class="nav-text-btn" data-action="community">Community</button>
+            <button type="button" class="nav-pill-btn" data-action="signin">SIGN IN</button>
+            <button type="button" class="nav-menu-btn" data-action="menu" aria-label="Menu">
+              <i></i><i></i><i></i>
+            </button>
+          </div>
+        </header>
+
+        <section class="notebook-home ${hasName ? 'has-player' : 'needs-player'}" role="region" aria-labelledby="home-title">
+          <div class="notebook-spread">
+            <!-- Left Notebook Page -->
+            <div class="notebook-page notebook-left">
+              <header class="notebook-brand">
+                <span class="pen-logo" aria-hidden="true"><i></i><b></b></span>
+                <strong>PEN FIGHT</strong>
+              </header>
+
+              <section class="player-intro">
+                <h1 id="home-title" class="home-main-title ${hasName ? 'sr-only' : ''}">Welcome to Pen Fight</h1>
+                <div class="player-title-row">
+                  <strong class="player-display">${escapeText(displayName)}</strong>
+                  ${hasName ? '<button type="button" class="edit-name-pen" aria-label="Edit name" title="Change name">✎</button>' : ''}
                 </div>
-                <p class="form-error" role="alert"></p>
-              </form>
-              <div class="journey-progress" aria-label="Class journey: 2 of 12 pens">
-                <span><b>2</b> of 12 pens</span><i class="won"></i>${Array.from({ length: 9 }, () => '<i></i>').join('')}<i class="trophy">♛</i>
+                <div class="player-journey-subline">
+                  <span>2 of 12 pens · </span><span class="trimax-red">10 to the Trimax</span>
+                </div>
+
+                <form class="home-name-form ${hasName ? 'name-saved' : 'name-active'}">
+                  <label for="player-name">Your name</label>
+                  <div class="notebook-name-line">
+                    <input id="player-name" name="name" maxlength="18" autocomplete="nickname" placeholder="Write your name" value="${escapeText(inputValue)}" ${hasName ? '' : 'autofocus'}>
+                    <button type="submit">${hasName ? 'UPDATE' : 'Claim my desk'} <span aria-hidden="true">→</span></button>
+                  </div>
+                  <p class="form-error" role="alert"></p>
+                </form>
+
+                <div class="journey-progress-track" aria-label="Class journey: 2 of 12 pens">
+                  <div class="track-nodes">
+                    <i class="node filled"></i>
+                    <i class="node red-ring"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="node"></i>
+                    <i class="trophy-node" aria-hidden="true">🏆</i>
+                  </div>
+                </div>
+              </section>
+
+              <div class="ruled-heading"><span>YOUR NEXT FIGHT</span></div>
+
+              <article class="next-fight-card">
+                <div class="polaroid-photo">
+                  <div class="tape-strip" aria-hidden="true"></div>
+                  <div class="photo-frame">
+                    <img src="/door_9a.jpg" alt="Classroom 9A door" class="door-img" />
+                    <span class="door-room-tag">9A</span>
+                  </div>
+                </div>
+                <div class="fight-copy">
+                  <div class="you-are-here-tag">YOU ARE HERE</div>
+                  <span class="room-title-code">9A</span>
+                  <h2>${hasName ? 'FINISH YOUR MATCH WITH PRIYA' : 'START YOUR MATCH WITH PRIYA'}</h2>
+                  <p>${hasName ? 'You left it 0-1. The next round is waiting.' : 'Take your place at desk 9A and flick first.'}</p>
+                  <div class="line-score-stamp">${hasName ? 'LINE SCORE 0-1' : 'LINE SCORE 0-0'}</div>
+                  <button class="continue-fight" data-action="play" type="button" ${hasName ? '' : 'disabled'}>
+                    ${hasName ? 'CONTINUE THE MATCH' : 'START THE MATCH'}
+                  </button>
+                </div>
+              </article>
+
+              <div class="route-tracker">
+                <div class="route-lead">
+                  <span class="red-pin"></span>
+                  <small>AFTER 9A: YOUR SOLO JOURNEY CONTINUES</small>
+                </div>
+                <div class="class-route" aria-label="Your class route">
+                  <div class="route-row current up-next-stage">
+                    <b class="route-code">9B</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <span class="badge-up-next">UP NEXT</span>
+                        <strong>OTHER CLASSES</strong>
+                        <span class="route-desc">Their room. Two captains! one.</span>
+                      </div>
+                      <div class="route-sub-goal">FINISH 9A AND WIN THE TRIMAX</div>
+                    </div>
+                    <span class="route-lock" aria-label="Locked">🔒</span>
+                  </div>
+
+                  <div class="route-row locked">
+                    <b class="route-code">9C</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <span class="badge-then">THEN</span>
+                        <strong>THE BIG TABLE</strong>
+                        <span class="route-desc">Pencils only. Four rivals.</span>
+                      </div>
+                    </div>
+                    <span class="route-lock" aria-label="Locked">🔒</span>
+                  </div>
+
+                  <div class="route-row locked">
+                    <b class="route-code">CHEM</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <span class="badge-later">LATER</span>
+                        <strong>CHEMISTRY LAB</strong>
+                        <span class="route-desc">A practical at the wet bench.</span>
+                      </div>
+                    </div>
+                    <span class="route-lock" aria-label="Locked">🔒</span>
+                  </div>
+
+                  <div class="route-row locked">
+                    <b class="route-code">PHYS</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <span class="badge-later">LATER</span>
+                        <strong>PHYSICS LAB</strong>
+                        <span class="route-desc">One desk. Three ways it moves.</span>
+                      </div>
+                    </div>
+                    <span class="route-lock" aria-label="Locked">🔒</span>
+                  </div>
+
+                  <div class="route-row locked">
+                    <b class="route-code">STAFF</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <span class="badge-later">LATER</span>
+                        <strong>THE STAFF ROOM</strong>
+                        <span class="route-desc">Teachers only. The door stays shut.</span>
+                      </div>
+                    </div>
+                    <span class="route-lock" aria-label="Locked">🔒</span>
+                  </div>
+
+                  <div class="route-row route-more">
+                    <b class="route-code dots">···</b>
+                    <div class="route-details">
+                      <div class="route-headline">
+                        <strong>THE ROUTE CONTINUES</strong>
+                        <span class="route-desc">8 more stages appear as you move forward</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </section>
+            </div>
 
-            <div class="ruled-heading"><span>YOUR NEXT FIGHT</span></div>
-            <article class="next-fight-card">
-              <div class="classroom-stamp" aria-hidden="true"><span>ROOM</span><strong>9A</strong><small>OPEN</small></div>
-              <div class="fight-copy"><small>UP NEXT · CLASS 9A</small><h2>${hasName ? 'DEFEND YOUR DESK' : 'ENTER THE CLASSROOM'}</h2><p>${hasName ? 'The class ace is waiting. First to knock three pens off wins.' : 'Add your name above, then take your place at the desk.'}</p></div>
-              <button class="continue-fight" data-action="play" type="button" ${hasName ? '' : 'disabled'}>START THE MATCH <span aria-hidden="true">→</span></button>
-            </article>
+            <!-- Right Notebook Page -->
+            <div class="notebook-page notebook-right">
+              <button class="notebook-settings" data-action="settings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="desk-settings">⚙</button>
+              <div class="desk-pen-prop" aria-hidden="true">
+                <img src="/blue_pen.jpg" alt="" class="pen-img-prop" />
+              </div>
 
-            <div class="class-route" aria-label="Your class route">
-              <div class="route-row current"><b>9B</b><span><strong>OTHER CLASSES</strong><small>Two pens. One desk. No excuses.</small></span><em>UP NEXT</em></div>
-              <div class="route-row locked"><b>9C</b><span><strong>THE BIG TABLE</strong><small>Pencils only. Four rivals.</small></span><em>LOCKED</em></div>
-              <div class="route-row locked"><b>CHEM</b><span><strong>CHEMISTRY LAB</strong><small>A practical at the wet bench.</small></span><em>LOCKED</em></div>
-              <div class="route-row locked"><b>PHYS</b><span><strong>PHYSICS LAB</strong><small>One desk. Three ways it moves.</small></span><em>LOCKED</em></div>
+              <div class="ruled-heading play-heading"><span>PLAY ANOTHER WAY</span></div>
+
+              <nav class="play-list" aria-label="Play another way">
+                <button class="mode-item friend-choice" data-action="friend" type="button" ${hasName ? '' : 'disabled'}>
+                  <span class="mode-icon chain-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                  </span>
+                  <span class="mode-content">
+                    <strong>FRIEND</strong>
+                    <small>2-3 players · invite with a Link</small>
+                  </span>
+                  <span class="mode-chevron" aria-hidden="true">›</span>
+                </button>
+
+                <button class="mode-item tournament-choice" data-action="tournament" type="button">
+                  <span class="mode-icon trophy-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34"></path><path d="M18 4H6v7a6 6 0 0 0 12 0V4z"></path></svg>
+                  </span>
+                  <span class="mode-content">
+                    <span class="mode-title-row">
+                      <strong>TOURNAMENT</strong>
+                      <span class="badge-highlighter">NEW</span>
+                    </span>
+                    <small>next one today (sat) · Sattu holds the belt</small>
+                  </span>
+                  <span class="mode-chevron" aria-hidden="true">›</span>
+                </button>
+
+                <button class="mode-item local-choice" data-action="local" type="button" ${hasName ? '' : 'disabled'}>
+                  <span class="mode-icon people-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                  </span>
+                  <span class="mode-content">
+                    <span class="mode-title-row">
+                      <strong>LOCAL</strong>
+                      <span class="badge-highlighter">SIMPLE</span>
+                    </span>
+                    <small>6 players · score 0-0-0-0-0-0</small>
+                  </span>
+                  <span class="mode-chevron" aria-hidden="true">›</span>
+                </button>
+
+                <button class="mode-item instant-choice" data-action="instant" type="button" ${hasName ? '' : 'disabled'}>
+                  <span class="mode-icon globe-icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  </span>
+                  <span class="mode-content">
+                    <strong>INSTANT</strong>
+                    <small>2-3 players · find someone online</small>
+                  </span>
+                  <span class="mode-chevron" aria-hidden="true">›</span>
+                </button>
+              </nav>
+
+              <div class="ruled-heading rivals-heading"><span>YOUR RIVALS</span></div>
+              <div class="rivals-settle-box">
+                <p>Play a friend and the score settles here.</p>
+              </div>
+
+              <div class="ranking-row" data-action="ranking" role="button" tabindex="0">
+                <span class="ranking-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                </span>
+                <strong class="ranking-label">CLASS RANKING</strong>
+                <span class="mode-chevron" aria-hidden="true">›</span>
+              </div>
+
+              <footer class="notebook-footer-notes">
+                <p class="bench-credit">made on the last bench by @rinks___g and @littleplaycode</p>
+                <nav class="footer-links" aria-label="Game links">
+                  <a href="#how-to-play" class="notebook-link" data-action="info-how">How To Play Pen Fight</a> ·
+                  <a href="#what-is-pen-fight" class="notebook-link" data-action="info-what">What is Pen Fight?</a> ·
+                  <a href="#notice-board" class="notebook-link" data-action="info-notice">Notice Board</a>
+                </nav>
+              </footer>
             </div>
           </div>
 
-          <div class="notebook-page notebook-right">
-            <button class="notebook-settings" data-action="settings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="desk-settings">⚙</button>
-            <div class="ruled-heading play-heading"><span>PLAY ANOTHER WAY</span></div>
-            <nav class="play-list" aria-label="Play another way">
-              <button class="friend-choice" data-action="friend" type="button" ${hasName ? '' : 'disabled'}><span class="menu-icon">↗</span><span><strong>FRIEND</strong><small>Two players · same device</small></span><em>PLAY →</em></button>
-              <button type="button" disabled><span class="menu-icon">♜</span><span><strong>TOURNAMENT</strong><small>Climb the weekly classroom bracket</small></span><em>SOON</em></button>
-              <button class="instant-choice" data-action="play" type="button" ${hasName ? '' : 'disabled'}><span class="menu-icon">◎</span><span><strong>INSTANT</strong><small>Quick solo match against the class ace</small></span><em>PLAY →</em></button>
-            </nav>
+          <aside class="settings-popover paper" id="desk-settings" hidden>
+            <strong>Desk settings</strong>
+            <label><span>Calm camera</span><input data-setting="motion" type="checkbox" ${state.settings.reducedMotion ? 'checked' : ''}></label>
+          </aside>
 
-            <div class="ruled-heading rivals-heading"><span>YOUR RIVALS</span></div>
-            <div class="rivals-empty"><span>✦</span><p>Win your first match and your rivals will settle here.</p></div>
+          <aside class="notice-toast paper" id="desk-notice" hidden aria-live="polite">
+            <span class="notice-pin">📌</span>
+            <p class="notice-msg"></p>
+            <button type="button" class="notice-close">Got it</button>
+          </aside>
+        </section>`;
 
-            <div class="notebook-ranking"><span>▥</span><strong>CLASS RANKING</strong><small>#12 · ROOKIE DESK</small></div>
-            <footer class="notebook-footer"><span>PILOT V6</span><span>Made at the last bench</span></footer>
-          </div>
-        </div>
-        <aside class="settings-popover paper" id="desk-settings" hidden>
-          <strong>Desk settings</strong>
-          <label><span>Calm camera</span><input data-setting="motion" type="checkbox" ${state.settings.reducedMotion ? 'checked' : ''}></label>
-        </aside>
-      </section>`;
       const form = this.#layer.querySelector<HTMLFormElement>('.home-name-form');
       const input = this.#layer.querySelector<HTMLInputElement>('#player-name');
       const error = this.#layer.querySelector<HTMLElement>('.form-error');
+      const editPen = this.#layer.querySelector<HTMLButtonElement>('.edit-name-pen');
+
+      editPen?.addEventListener('click', () => {
+        form?.classList.toggle('name-saved');
+        input?.focus();
+      });
+
       input?.addEventListener('input', () => { this.#nameDraft = input.value; });
       form?.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -157,10 +365,50 @@ export class UiRoot {
         this.#nameDraft = null;
         this.actions.onSaveName(name);
       });
+
       this.#layer.querySelectorAll<HTMLElement>('[data-action="play"]').forEach((button) => {
         button.addEventListener('click', this.actions.onPlay);
       });
+      this.#layer.querySelector('[data-action="instant"]')?.addEventListener('click', this.actions.onPlay);
       this.#layer.querySelector('[data-action="friend"]')?.addEventListener('click', this.actions.onPlayFriend);
+      this.#layer.querySelector('[data-action="local"]')?.addEventListener('click', this.actions.onPlayFriend);
+
+      const notice = this.#layer.querySelector<HTMLElement>('#desk-notice');
+      const noticeMsg = this.#layer.querySelector<HTMLElement>('.notice-msg');
+      const showNotice = (msg: string) => {
+        if (!notice || !noticeMsg) return;
+        noticeMsg.textContent = msg;
+        notice.hidden = false;
+      };
+      this.#layer.querySelector('.notice-close')?.addEventListener('click', () => {
+        if (notice) notice.hidden = true;
+      });
+
+      this.#layer.querySelector('[data-action="tournament"]')?.addEventListener('click', () => {
+        showNotice('Saturday Recess Tournament opens at 2:00 PM! Sattu currently holds the championship belt.');
+      });
+      this.#layer.querySelector('[data-action="ranking"]')?.addEventListener('click', () => {
+        showNotice('Class 9A Standings: You are at #12 (Rookie Desk). Defeat Priya to climb into the top 10!');
+      });
+      this.#layer.querySelector('[data-action="community"]')?.addEventListener('click', () => {
+        showNotice('Classroom Community boards are preparing for next term. Join on Discord soon!');
+      });
+      this.#layer.querySelector('[data-action="signin"]')?.addEventListener('click', () => {
+        showNotice('Sign in with school roll number or Google will arrive in Pilot V6.');
+      });
+      this.#layer.querySelector('[data-action="info-how"]')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showNotice('Rules: Pull back on your pen to set direction and power, release to flick. Knock rival pen off the desk to win rounds!');
+      });
+      this.#layer.querySelector('[data-action="info-what"]')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showNotice('Pen Fight: The legendary classroom tabletop sport played on wooden desks with ballpoint pens.');
+      });
+      this.#layer.querySelector('[data-action="info-notice"]')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        showNotice('Notice: Pencils and Geometry boxes will be allowed in Stage 9C!');
+      });
+
       const settings = this.#layer.querySelector<HTMLElement>('.settings-popover');
       const settingsButton = this.#layer.querySelector<HTMLButtonElement>('[data-action="settings"]');
       const closeSettings = () => {
