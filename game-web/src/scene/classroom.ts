@@ -12,6 +12,7 @@ import {
   penHasFallen,
   PLAYER_CORNER,
   resolveEqualMassCollision,
+  TABLE_BOUNDS,
 } from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
 
@@ -352,11 +353,40 @@ export function createClassroom(): ClassroomScene {
   );
   aimLine.visible = false;
   const aimHead = new THREE.Mesh(
-    new THREE.ConeGeometry(0.16, 0.42, 12),
-    new THREE.MeshBasicMaterial({ color: '#f5d34f', transparent: true, opacity: 0.94 }),
+    new THREE.ConeGeometry(0.22, 0.46, 16),
+    new THREE.MeshBasicMaterial({ color: '#ffe66d', transparent: true, opacity: 0.95 }),
   );
   aimHead.visible = false;
   group.add(aimLine, aimHead);
+
+  const aimDots: THREE.Mesh[] = [];
+  const aimDotGeom = new THREE.SphereGeometry(0.095, 12, 12);
+  const aimDotMat = new THREE.MeshBasicMaterial({
+    color: '#ffe66d',
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+  });
+  for (let i = 0; i < 5; i++) {
+    const dotMesh = new THREE.Mesh(aimDotGeom, aimDotMat);
+    dotMesh.visible = false;
+    group.add(dotMesh);
+    aimDots.push(dotMesh);
+  }
+
+  const targetRingMaterial = new THREE.MeshBasicMaterial({
+    color: '#ff3b5c',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+  const targetRing = new THREE.Mesh(new THREE.RingGeometry(0.48, 0.64, 32), targetRingMaterial);
+  targetRing.rotation.x = -Math.PI / 2;
+  targetRing.position.y = 2.569;
+  targetRing.visible = false;
+  group.add(targetRing);
 
   const turnRingMaterial = new THREE.MeshBasicMaterial({
     color: '#37aaff',
@@ -605,6 +635,8 @@ export function createClassroom(): ClassroomScene {
     aimListener(0);
     aimLine.visible = false;
     aimHead.visible = false;
+    for (const dot of aimDots) dot.visible = false;
+    targetRing.visible = false;
     shockwave.visible = false;
     shockwaveTimer = 0;
     impactStar.visible = false;
@@ -706,6 +738,10 @@ export function createClassroom(): ClassroomScene {
           const ringPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.006) * 0.08;
           turnRing.scale.setScalar(ringPulse);
         }
+        if (targetRing.visible) {
+          const tRingPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.012) * 0.08;
+          targetRing.scale.setScalar(tRingPulse);
+        }
         return;
       }
       if (falling) {
@@ -741,6 +777,10 @@ export function createClassroom(): ClassroomScene {
       turnRingMaterial.color.set(PEN_COLORS[turns.activePlayer] ?? '#37aaff');
       const ringPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.006) * 0.08;
       turnRing.scale.setScalar(ringPulse);
+      if (targetRing.visible) {
+        const tRingPulse = reducedMotion ? 1 : 1 + Math.sin(time * 0.012) * 0.08;
+        targetRing.scale.setScalar(tRingPulse);
+      }
 
       for (let i = 0; i < activePlayerCount; i++) {
         const pen = pens[i];
@@ -981,14 +1021,19 @@ export function createClassroom(): ClassroomScene {
         aimActive = true;
         actionListener('aiming');
       }
-      const aim = computeFlickAim(deltaX, deltaY, 2.4);
-      const assisted = assistedDirection(aim.direction, {
-        x: opponent.position.x - aimOrigin.x,
-        y: opponent.position.z - aimOrigin.z,
-      });
+      const aim = computeFlickAim(deltaX, deltaY, 1.8);
+      const assisted = assistedDirection(
+        aim.direction,
+        {
+          x: opponent.position.x - aimOrigin.x,
+          y: opponent.position.z - aimOrigin.z,
+        },
+        0.34,
+        0.28,
+      );
       shotAngle = Math.atan2(-assisted.y, assisted.x);
       aimPower = aim.power;
-      const guideLength = 1.35 + aim.power * 4.2;
+      const guideLength = 1.35 + aim.power * 4.4;
       aimGeometry.setFromPoints([
         new THREE.Vector3(aimOrigin.x, 2.74, aimOrigin.z),
         new THREE.Vector3(
@@ -997,7 +1042,8 @@ export function createClassroom(): ClassroomScene {
           aimOrigin.z - Math.sin(shotAngle) * guideLength,
         ),
       ]);
-      aimLine.visible = aim.power > 0.04;
+      const showGuide = aim.power > 0.03;
+      aimLine.visible = showGuide;
       const aimDirection = new THREE.Vector3(Math.cos(shotAngle), 0, -Math.sin(shotAngle));
       aimHead.position.set(
         aimOrigin.x + aimDirection.x * guideLength,
@@ -1005,14 +1051,38 @@ export function createClassroom(): ClassroomScene {
         aimOrigin.z + aimDirection.z * guideLength,
       );
       aimHead.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), aimDirection);
-      aimHead.visible = aim.power > 0.04;
+      aimHead.visible = showGuide;
+
+      for (let i = 0; i < aimDots.length; i++) {
+        const fraction = (i + 1) / (aimDots.length + 1);
+        const dotDist = guideLength * fraction;
+        const dot = aimDots[i]!;
+        dot.position.set(
+          aimOrigin.x + aimDirection.x * dotDist,
+          2.70,
+          aimOrigin.z + aimDirection.z * dotDist,
+        );
+        const scale = (0.7 + fraction * 0.5) * Math.min(1.2, 0.4 + aim.power * 1.3);
+        dot.scale.setScalar(scale);
+        dot.visible = showGuide;
+      }
+
+      if (showGuide && opponent) {
+        targetRing.position.x = opponent.position.x;
+        targetRing.position.z = opponent.position.z;
+        targetRingMaterial.opacity = THREE.MathUtils.clamp(aim.power * 1.4, 0.35, 0.88);
+        targetRing.visible = true;
+      } else {
+        targetRing.visible = false;
+      }
+
       aimListener(aim.power);
       return true;
     },
     flick() {
       if (turns.phase !== 'player') return false;
       const pen = activeHumanPen();
-      if (aimPower < 0.08) {
+      if (aimPower < 0.03) {
         if (aimActive) {
           pen.position.copy(aimOrigin);
           pen.rotation.y = aimOriginAngle;
@@ -1022,11 +1092,13 @@ export function createClassroom(): ClassroomScene {
         aimListener(0);
         aimLine.visible = false;
         aimHead.visible = false;
+        for (const dot of aimDots) dot.visible = false;
+        targetRing.visible = false;
         actionListener('ready');
         return false;
       }
       if (!turns.playerFlicked()) return false;
-      const strength = THREE.MathUtils.lerp(4.6, 15.2, Math.pow(aimPower, 0.72));
+      const strength = THREE.MathUtils.lerp(4.8, 15.6, Math.pow(aimPower, 0.7));
       activeHumanVelocity().set(Math.cos(shotAngle) * strength, -Math.sin(shotAngle) * strength);
       pen.position.copy(aimOrigin);
       stopActiveHumanSpin();
@@ -1035,6 +1107,8 @@ export function createClassroom(): ClassroomScene {
       aimListener(0);
       aimLine.visible = false;
       aimHead.visible = false;
+      for (const dot of aimDots) dot.visible = false;
+      targetRing.visible = false;
       actionListener('playerMoving');
       return true;
     },
@@ -1048,6 +1122,8 @@ export function createClassroom(): ClassroomScene {
       aimListener(0);
       aimLine.visible = false;
       aimHead.visible = false;
+      for (const dot of aimDots) dot.visible = false;
+      targetRing.visible = false;
       actionListener('ready');
     },
     resetPens() {
@@ -1065,10 +1141,12 @@ export function createClassroom(): ClassroomScene {
       const scratch = new THREE.Vector3();
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2.58);
       const hit = raycaster.ray.intersectPlane(plane, scratch);
-      if (hit && Math.hypot(hit.x - pen.position.x, hit.z - pen.position.z) <= 3.8) {
-        return true;
-      }
-      return false;
+      if (!hit) return false;
+      const distToActive = Math.hypot(hit.x - pen.position.x, hit.z - pen.position.z);
+      if (distToActive <= 7.5) return true;
+      const onTable = Math.abs(hit.x) <= TABLE_BOUNDS.halfWidth + 1.2 &&
+                      Math.abs(hit.z - TABLE_BOUNDS.centerZ) <= TABLE_BOUNDS.halfDepth + 1.2;
+      return onTable;
     },
     setFallListener(listener: (winner: number) => void) {
       fallListener = listener;

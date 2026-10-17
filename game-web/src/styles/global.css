@@ -1229,8 +1229,14 @@ select {
 }
 
 /* Match Footer Layout Dock */
-.ui-layer .match-footer { pointer-events: none; }
-.ui-layer .match-footer > * { pointer-events: auto; }
+.ui-layer .match-footer,
+.ui-layer .match-footer * {
+  pointer-events: none;
+}
+.ui-layer .match-footer button,
+.ui-layer .match-footer a {
+  pointer-events: auto;
+}
 
 .match-footer {
   position: absolute;

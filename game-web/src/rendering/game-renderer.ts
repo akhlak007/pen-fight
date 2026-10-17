@@ -20,6 +20,7 @@ export class GameRenderer {
   readonly #tablePointScratch = new THREE.Vector3();
   #matchEnabled = false;
   #suspended = false;
+  #localPlayer: number | null = null;
   #dragStart: { point: THREE.Vector3; pointerId: number } | null = null;
   #keyboardAim: { x: number; y: number } | null = null;
   #inputListener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null = null;
@@ -50,6 +51,7 @@ export class GameRenderer {
     this.#resize();
     canvas.addEventListener('pointerdown', (event) => {
       if (!this.#matchEnabled || this.#suspended || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0) || this.#dragStart) return;
+      if (this.#localPlayer !== null && this.#classroom.activePlayer !== this.#localPlayer) return;
       const point = this.#tablePoint(event.clientX, event.clientY);
       if (!point || !this.#classroom.canGrab(this.#raycaster)) return;
       this.#keyboardAim = null;
@@ -66,9 +68,11 @@ export class GameRenderer {
       if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
       const point = this.#tablePoint(event.clientX, event.clientY);
       const distance = point ? point.distanceTo(this.#dragStart.point) : 0;
-      if (point && distance >= 0.12) {
-        this.#aim(point.x - this.#dragStart.point.x, point.z - this.#dragStart.point.z);
-        this.#flick();
+      if (point && distance >= 0.05) {
+        const dx = point.x - this.#dragStart.point.x;
+        const dz = point.z - this.#dragStart.point.z;
+        this.#aim(dx, dz);
+        this.#flick(dx, dz);
         this.#finishDrag();
       } else {
         this.#cancelDrag();
@@ -166,12 +170,16 @@ export class GameRenderer {
     this.#classroom.setMatchMode(mode, playerCount, playerNames);
   }
   setReplica(value: boolean): void { this.#classroom.setReplica(value); }
+  setLocalPlayer(player: number | null): void { this.#localPlayer = player; }
   setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
   applyArenaSnapshot(snapshot: ArenaSnapshot): void { this.#classroom.applyArenaSnapshot(snapshot); }
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
   remoteInput(action: 'aim' | 'flick' | 'cancel', x?: number, y?: number): void {
     if (action === 'aim' && x !== undefined && y !== undefined) this.#classroom.aim(x, y);
-    else if (action === 'flick') this.#classroom.flick();
+    else if (action === 'flick') {
+      if (x !== undefined && y !== undefined) this.#classroom.aim(x, y);
+      this.#classroom.flick();
+    }
     else if (action === 'cancel') this.#classroom.cancelAim();
   }
   isPenMoving(): boolean { return this.#classroom.isPenMoving?.() ?? true; }
@@ -251,6 +259,6 @@ export class GameRenderer {
   }
 
   #aim(x: number, y: number): boolean { return this.#inputListener?.('aim', x, y) ?? this.#classroom.aim(x, y); }
-  #flick(): boolean { return this.#inputListener?.('flick') ?? this.#classroom.flick(); }
+  #flick(x?: number, y?: number): boolean { return this.#inputListener?.('flick', x, y) ?? this.#classroom.flick(); }
   #cancelAim(): void { if (!this.#inputListener?.('cancel')) this.#classroom.cancelAim(); }
 }

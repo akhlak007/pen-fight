@@ -86,6 +86,7 @@ const ui = new UiRoot(store, {
     store.startLocalMatch(rivalName);
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.focusArena();
+    renderer?.setLocalPlayer(null);
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode('local', playerCount, store.snapshot.match?.playerNames);
     ambience.startGameAmbience();
@@ -108,6 +109,7 @@ const ui = new UiRoot(store, {
     online.close();
     renderer?.setInputListener(null);
     renderer?.setReplica(false);
+    renderer?.setLocalPlayer(null);
     store.transition('home');
     renderer?.focusRoom();
     renderer?.setMatchEnabled(false);
@@ -117,6 +119,7 @@ const ui = new UiRoot(store, {
     storage.update({ lastMode: mode });
     store.startMatch(mode);
     renderer?.focusArena();
+    renderer?.setLocalPlayer(null);
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode(mode, 2);
     ambience.startGameAmbience();
@@ -132,7 +135,12 @@ const ui = new UiRoot(store, {
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames);
-    if (mode === 'online') renderer?.setReplica(online.state.seat === 'guest');
+    if (mode === 'online') {
+      renderer?.setReplica(online.state.seat === 'guest');
+      renderer?.setLocalPlayer(online.state.seat === 'guest' ? 1 : 0);
+    } else {
+      renderer?.setLocalPlayer(null);
+    }
     ambience.startGameAmbience();
   },
   onEditName() {
@@ -155,7 +163,11 @@ function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;
   const rival = state.seat === 'host' ? state.players?.[1] : state.players?.[0];
   store.startOnlineMatch(rival || 'Online friend');
-  renderer?.focusArena(); renderer?.setMatchMode('online'); renderer?.setReplica(state.seat === 'guest'); renderer?.setMatchEnabled(true);
+  renderer?.focusArena();
+  renderer?.setMatchMode('online');
+  renderer?.setReplica(state.seat === 'guest');
+  renderer?.setLocalPlayer(state.seat === 'guest' ? 1 : 0);
+  renderer?.setMatchEnabled(true);
   ambience.startGameAmbience();
 
   let pendingAim: { x: number; y: number } | null = null;
@@ -176,16 +188,23 @@ function enterOnlineMatch(state: OnlineState): void {
           pendingAim = { x, y };
           if (aimSendTimer === null) {
             flushAim();
-            aimSendTimer = window.setTimeout(flushAim, 40);
+            aimSendTimer = window.setTimeout(flushAim, 30);
           }
         } else if (action === 'flick') {
           if (aimSendTimer !== null) {
             clearTimeout(aimSendTimer);
             aimSendTimer = null;
           }
+          const finalX = x ?? pendingAim?.x;
+          const finalY = y ?? pendingAim?.y;
           pendingAim = null;
-          online.send({ type: 'intent', action: 'flick' });
-          renderer?.remoteInput('flick');
+          online.send({
+            type: 'intent',
+            action: 'flick',
+            ...(finalX !== undefined ? { x: finalX } : {}),
+            ...(finalY !== undefined ? { y: finalY } : {}),
+          });
+          renderer?.remoteInput('flick', finalX, finalY);
         } else if (action === 'cancel') {
           if (aimSendTimer !== null) {
             clearTimeout(aimSendTimer);
