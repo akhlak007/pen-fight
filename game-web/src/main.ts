@@ -46,6 +46,7 @@ store.hydrate(save.playerName, save.settings);
 const online = new OnlineSession();
 const ambience = new AmbienceService(`${import.meta.env.BASE_URL}audio/sound_of_class.mp3`);
 ambience.setEnabled(save.settings.ambience);
+ambience.startGameAmbience();
 let pendingRoom = OnlineSession.roomFromUrl();
 
 let renderer: GameRenderer | null = null;
@@ -261,11 +262,8 @@ store.subscribe((state) => {
     const onlinePlayer: 0 | 1 = state.match.currentPlayer === 1 ? 1 : 0;
     online.send({ type: 'state', score: onlineScore, currentPlayer: onlinePlayer, phase: state.phase === 'result' ? 'result' : 'match' });
   }
-  const inGameMatch = state.phase === 'match' || state.phase === 'paused' || state.phase === 'result';
-  if (inGameMatch && !ambience.shouldPlay) {
+  if (state.settings.ambience && !ambience.shouldPlay) {
     ambience.startGameAmbience();
-  } else if (!inGameMatch && ambience.shouldPlay) {
-    ambience.stopGameAmbience();
   }
 });
 let onlineSnapshotSeq = 0;
@@ -306,6 +304,9 @@ async function finishBoot(): Promise<void> {
     await new Promise<void>((resolve) => window.setTimeout(resolve, save.settings.reducedMotion ? 20 : 170));
   }
   store.transition(save.playerName ? 'home' : 'naming');
+  if (save.settings.ambience) {
+    ambience.startGameAmbience();
+  }
   if (pendingRoom && save.playerName) {
     const room = pendingRoom;
     pendingRoom = null;

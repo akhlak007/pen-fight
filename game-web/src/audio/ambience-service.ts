@@ -41,9 +41,13 @@ export class AmbienceService {
         }
       };
       window.addEventListener('pointerdown', unlock, { passive: true });
+      window.addEventListener('touchstart', unlock, { passive: true });
+      window.addEventListener('click', unlock, { passive: true });
       window.addEventListener('keydown', unlock, { passive: true });
       this.#cleanupListeners = () => {
         window.removeEventListener('pointerdown', unlock);
+        window.removeEventListener('touchstart', unlock);
+        window.removeEventListener('click', unlock);
         window.removeEventListener('keydown', unlock);
       };
     }
