@@ -113,11 +113,21 @@ export class AppStore {
     });
   }
 
-  startOnlineMatch(rivalName: string): void {
+  startOnlineMatch(rivalName: string, playerNames?: readonly string[]): void {
     if (this.#state.phase !== 'settingUpLocal') throw new Error(`Cannot start an online match from ${this.#state.phase}.`);
     const rival = rivalName.trim().slice(0, 18);
     if (!rival) throw new Error('Online rival name cannot be empty.');
-    this.#publish({ ...this.#state, phase: 'match', match: { score: [0, 0], currentPlayer: 0, mode: 'online', rivalName: rival } });
+    this.#publish({
+      ...this.#state,
+      phase: 'match',
+      match: {
+        score: [0, 0],
+        currentPlayer: 0,
+        mode: 'online',
+        rivalName: rival,
+        ...(playerNames ? { playerNames } : {}),
+      },
+    });
   }
 
   recordPoint(winner: number): void {
@@ -131,7 +141,7 @@ export class AppStore {
     this.#publish({
       ...this.#state,
       phase: currentScore >= 2 ? 'result' : 'match',
-      match: { ...match, score, currentPlayer: 0, lastScorer: winner },
+      match: { ...match, score, lastScorer: winner },
     });
   }
 

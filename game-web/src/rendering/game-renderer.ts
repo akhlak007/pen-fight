@@ -50,14 +50,19 @@ export class GameRenderer {
     this.#timer.connect(document);
     this.#resize();
     canvas.addEventListener('pointerdown', (event) => {
-      if (!this.#matchEnabled || this.#suspended || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0) || this.#dragStart) return;
+      if (!this.#matchEnabled || this.#suspended || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      if (this.#dragStart) this.#cancelDrag();
       if (this.#localPlayer !== null && this.#classroom.activePlayer !== this.#localPlayer) return;
       const point = this.#tablePoint(event.clientX, event.clientY);
       if (!point || !this.#classroom.canGrab(this.#raycaster)) return;
       this.#keyboardAim = null;
       this.#dragStart = { point: point.clone(), pointerId: event.pointerId };
       canvas.classList.add('is-aiming');
-      canvas.setPointerCapture(event.pointerId);
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore if pointer capture fails on certain mobile webviews
+      }
     });
     canvas.addEventListener('pointermove', (event) => {
       if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
@@ -65,7 +70,11 @@ export class GameRenderer {
       if (point) this.#aim(point.x - this.#dragStart.point.x, point.z - this.#dragStart.point.z);
     });
     canvas.addEventListener('pointerup', (event) => {
-      if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
+      if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId) return;
+      if (!this.#matchEnabled || this.#suspended) {
+        this.#cancelDrag();
+        return;
+      }
       const point = this.#tablePoint(event.clientX, event.clientY);
       const distance = point ? point.distanceTo(this.#dragStart.point) : 0;
       if (point && distance >= 0.05) {
@@ -83,6 +92,7 @@ export class GameRenderer {
     });
     canvas.addEventListener('keydown', (event) => {
       if (!this.#matchEnabled || this.#suspended) return;
+      if (this.#localPlayer !== null && this.#classroom.activePlayer !== this.#localPlayer) return;
       const isTopSide = this.#classroom.activePlayer === 1 || this.#classroom.activePlayer === 2;
       const directions: Partial<Record<string, readonly [number, number]>> = isTopSide
         ? {
@@ -109,7 +119,7 @@ export class GameRenderer {
         }
       } else if ((event.key === ' ' || event.key === 'Enter') && this.#keyboardAim) {
         event.preventDefault();
-        this.#flick();
+        this.#flick(this.#keyboardAim.x, this.#keyboardAim.y);
         this.#keyboardAim = null;
         canvas.classList.remove('is-aiming');
       } else if (event.key === 'Escape' && this.#keyboardAim) {
@@ -136,13 +146,16 @@ export class GameRenderer {
           shakeY = Math.cos(time * 0.095) * shake * 0.5;
           this.#cameraTrauma = Math.max(0, this.#cameraTrauma - delta * 3.6);
         }
+        const isP2 = this.#localPlayer === 1;
         const baseY = this.#matchEnabled ? 20.5 : 21;
-        const baseZ = this.#matchEnabled ? 18.5 : 19;
+        const baseZ = isP2 ? (this.#matchEnabled ? -17.5 : -18) : (this.#matchEnabled ? 18.5 : 19);
+        const targetZ = isP2 ? 3.6 : -2.8;
         this.#camera.position.set(
           Math.sin(time * 0.00008) * 0.38 + shakeX,
           baseY + shakeY,
           baseZ,
         );
+        this.#target.set(0, 1.8, targetZ);
         this.#camera.lookAt(this.#target);
       }
       this.#renderer.render(this.#scene, this.#camera);
@@ -170,7 +183,10 @@ export class GameRenderer {
     this.#classroom.setMatchMode(mode, playerCount, playerNames);
   }
   setReplica(value: boolean): void { this.#classroom.setReplica(value); }
-  setLocalPlayer(player: number | null): void { this.#localPlayer = player; }
+  setLocalPlayer(player: number | null): void {
+    this.#localPlayer = player;
+    if (this.#matchEnabled) this.focusArena();
+  }
   setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
   applyArenaSnapshot(snapshot: ArenaSnapshot): void { this.#classroom.applyArenaSnapshot(snapshot); }
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
@@ -197,9 +213,15 @@ export class GameRenderer {
   }
 
   focusArena(): void {
-    this.#camera.position.set(0, 20.5, 18.5);
-    this.#target.set(0, 1.8, -2.8);
-    this.#camera.lookAt(this.#target);
+    if (this.#localPlayer === 1) {
+      this.#camera.position.set(0, 20.5, -17.5);
+      this.#target.set(0, 1.8, 3.6);
+      this.#camera.lookAt(this.#target);
+    } else {
+      this.#camera.position.set(0, 20.5, 18.5);
+      this.#target.set(0, 1.8, -2.8);
+      this.#camera.lookAt(this.#target);
+    }
   }
 
   focusRoom(): void {
@@ -249,7 +271,13 @@ export class GameRenderer {
     const pointerId = this.#dragStart?.pointerId;
     this.#dragStart = null;
     this.canvas.classList.remove('is-aiming');
-    if (pointerId !== undefined && this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+    if (pointerId !== undefined) {
+      try {
+        if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+      } catch {
+        // Pointer might already be released
+      }
+    }
   }
 
   #cancelDrag(): void {

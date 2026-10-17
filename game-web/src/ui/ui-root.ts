@@ -642,27 +642,39 @@ export class UiRoot {
         ? state.match.playerNames
         : [state.player.name, rivalName];
 
+      const isOnline = Boolean(online);
+      const isGuest = isOnline && this.#online.seat === 'guest';
+      const isMyTurn = isOnline
+        ? (isGuest ? activePlayer === 1 : activePlayer === 0)
+        : (local ? true : activePlayer === 0);
+
+      const PEN_COLOR_NAMES = ['blue', 'red', 'green', 'gold'] as const;
+      const penColor = PEN_COLOR_NAMES[activePlayer] ?? 'blue';
       const activeName = playerNames[activePlayer] ?? (activePlayer === 0 ? state.player.name : rivalName);
       const paused = state.phase === 'paused';
       const roundLocked = Boolean(this.#roundMessage);
-      const PEN_COLOR_NAMES = ['blue', 'red', 'green', 'gold'] as const;
-      const penColor = PEN_COLOR_NAMES[activePlayer] ?? 'blue';
+
       const defaultTurnTitle = aiTurn
         ? 'RIVAL IS AIMING'
         : practice
           ? 'PRACTICE SHOT'
-          : local || online
-            ? `${activeName.toUpperCase()}’S TURN`
-            : 'YOUR TURN';
+          : isOnline
+            ? (isMyTurn ? 'YOUR TURN' : `${activeName.toUpperCase()}’S TURN`)
+            : local
+              ? `${activeName.toUpperCase()}’S TURN`
+              : 'YOUR TURN';
       const defaultTurnHint = aiTurn
         ? 'Watch the table edge'
-        : `Grab the ${penColor} pen · pull back · release`;
+        : isOnline
+          ? (isMyTurn ? `Grab the ${penColor} pen · pull back · release` : 'Waiting for rival to strike · stay sharp')
+          : `Grab the ${penColor} pen · pull back · release`;
       const [actionTitle, actionHint] = arenaStatus(this.#arenaAction, defaultTurnTitle, defaultTurnHint);
       const turnTitle = paused ? 'MATCH PAUSED' : roundLocked ? 'ROUND RESETTING' : actionTitle;
       const turnHint = paused ? 'Return to the game to continue' : roundLocked ? this.#roundMessage! : actionHint;
       const scores = state.match?.score ?? [0, 0];
       const playerScore = scores[0] ?? 0;
       const rivalScore = scores[1] ?? 0;
+      const isRivalTurn = isOnline ? !isMyTurn : (local ? false : activePlayer > 0);
 
       this.#layer.innerHTML = `
         <!-- Match Top Navigation Bar -->
@@ -696,7 +708,7 @@ export class UiRoot {
         </div>
 
         <!-- Bottom Right Sticky Badge -->
-        <section class="turn-dock desk-turn-sticker ${activePlayer > 0 ? 'rival-turn' : ''} turn-player-${activePlayer} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
+        <section class="turn-dock desk-turn-sticker ${isRivalTurn ? 'rival-turn' : ''} turn-player-${activePlayer} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-my-turn="${isMyTurn}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
           <span class="sticker-hand" aria-hidden="true">👉</span>
           <div class="turn-copy">
             <strong>${escapeText(turnTitle)}</strong>
@@ -727,14 +739,14 @@ export class UiRoot {
             `).join('') : `
               <div class="competitor player ${activePlayer === 0 ? 'active' : ''}">
                 <span class="pen-swatch blue"></span>
-                <span class="competitor-copy"><small>${local || online ? 'PLAYER 1' : 'YOU'}</small><strong>${escapeText(playerNames[0] ?? state.player.name)}</strong></span>
+                <span class="competitor-copy"><small>${local ? 'PLAYER 1' : isOnline ? (isGuest ? 'RIVAL (P1)' : 'YOU (P1)') : 'YOU'}</small><strong>${escapeText(playerNames[0] ?? state.player.name)}</strong></span>
                 <span class="score-pips" aria-hidden="true">${scorePips(playerScore)}</span>
                 <b>${playerScore}</b>
               </div>
               <div class="competitor rival ${activePlayer === 1 ? 'active' : ''}">
                 <b>${rivalScore}</b>
                 <span class="score-pips" aria-hidden="true">${scorePips(rivalScore)}</span>
-                <span class="competitor-copy"><small>${local || online ? 'PLAYER 2' : 'RIVAL'}</small><strong>${escapeText(playerNames[1] ?? rivalName)}</strong></span>
+                <span class="competitor-copy"><small>${local ? 'PLAYER 2' : isOnline ? (isGuest ? 'YOU (P2)' : 'RIVAL (P2)') : 'RIVAL'}</small><strong>${escapeText(playerNames[1] ?? rivalName)}</strong></span>
                 <span class="pen-swatch red"></span>
               </div>
             `}
@@ -848,9 +860,10 @@ export class UiRoot {
     if (title) title.textContent = titleText;
     if (hint) hint.textContent = hintText;
     dock.dataset.action = action;
+    const isMyTurn = dock.dataset.myTurn === 'true';
     dock.classList.toggle(
       'rival-turn',
-      dock.dataset.player === '1' || action === 'aiWaiting' || action === 'aiMoving',
+      !isMyTurn || action === 'aiWaiting' || action === 'aiMoving',
     );
   }
 

@@ -1254,6 +1254,13 @@ export function createClassroom(): ClassroomScene {
         penAngularVelocities[1] = redState.angularVelocity;
       }
       turns.syncState(snapshot.currentPlayer, snapshot.phase);
+      if (snapshot.phase === 'player' && !aimActive) {
+        actionListener('ready');
+      } else if (snapshot.phase === 'falling') {
+        actionListener('roundReset');
+      } else if (snapshot.phase === 'playerMoving') {
+        actionListener('playerMoving');
+      }
     },
     setReplica(value) {
       replica = value;

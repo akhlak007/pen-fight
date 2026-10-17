@@ -127,6 +127,7 @@ const ui = new UiRoot(store, {
   onRematch() {
     const match = store.snapshot.match;
     const mode = match?.mode ?? 'quick';
+    const playerNames = match?.playerNames;
     if (mode === 'local' && match?.playerNames && match.playerNames.length > 2) {
       store.startLocalMatch(match.playerNames.slice(1));
     } else {
@@ -134,13 +135,14 @@ const ui = new UiRoot(store, {
     }
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames);
+    renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames ?? playerNames);
     if (mode === 'online') {
       renderer?.setReplica(online.state.seat === 'guest');
       renderer?.setLocalPlayer(online.state.seat === 'guest' ? 1 : 0);
     } else {
       renderer?.setLocalPlayer(null);
     }
+    renderer?.focusArena();
     ambience.startGameAmbience();
   },
   onEditName() {
@@ -161,10 +163,13 @@ if (pendingRoom) ui.setPendingInvite(pendingRoom);
 
 function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;
-  const rival = state.seat === 'host' ? state.players?.[1] : state.players?.[0];
-  store.startOnlineMatch(rival || 'Online friend');
+  const hostName = state.players?.[0] || (state.seat === 'host' ? store.snapshot.player.name : 'Host');
+  const guestName = state.players?.[1] || (state.seat === 'guest' ? store.snapshot.player.name : 'Guest');
+  const playerNames = [hostName, guestName] as const;
+  const rival = state.seat === 'host' ? guestName : hostName;
+  store.startOnlineMatch(rival, playerNames);
   renderer?.focusArena();
-  renderer?.setMatchMode('online');
+  renderer?.setMatchMode('online', 2, playerNames);
   renderer?.setReplica(state.seat === 'guest');
   renderer?.setLocalPlayer(state.seat === 'guest' ? 1 : 0);
   renderer?.setMatchEnabled(true);
@@ -182,38 +187,36 @@ function enterOnlineMatch(state: OnlineState): void {
 
   renderer?.setInputListener((action, x, y) => {
     if (state.seat === 'guest') {
-      if (store.snapshot.match?.currentPlayer === 1) {
-        if (action === 'aim' && x !== undefined && y !== undefined) {
-          renderer?.remoteInput('aim', x, y);
-          pendingAim = { x, y };
-          if (aimSendTimer === null) {
-            flushAim();
-            aimSendTimer = window.setTimeout(flushAim, 30);
-          }
-        } else if (action === 'flick') {
-          if (aimSendTimer !== null) {
-            clearTimeout(aimSendTimer);
-            aimSendTimer = null;
-          }
-          const finalX = x ?? pendingAim?.x;
-          const finalY = y ?? pendingAim?.y;
-          pendingAim = null;
-          online.send({
-            type: 'intent',
-            action: 'flick',
-            ...(finalX !== undefined ? { x: finalX } : {}),
-            ...(finalY !== undefined ? { y: finalY } : {}),
-          });
-          renderer?.remoteInput('flick', finalX, finalY);
-        } else if (action === 'cancel') {
-          if (aimSendTimer !== null) {
-            clearTimeout(aimSendTimer);
-            aimSendTimer = null;
-          }
-          pendingAim = null;
-          online.send({ type: 'intent', action: 'cancel' });
-          renderer?.remoteInput('cancel');
+      if (action === 'aim' && x !== undefined && y !== undefined) {
+        renderer?.remoteInput('aim', x, y);
+        pendingAim = { x, y };
+        if (aimSendTimer === null) {
+          flushAim();
+          aimSendTimer = window.setTimeout(flushAim, 30);
         }
+      } else if (action === 'flick') {
+        if (aimSendTimer !== null) {
+          clearTimeout(aimSendTimer);
+          aimSendTimer = null;
+        }
+        const finalX = x ?? pendingAim?.x;
+        const finalY = y ?? pendingAim?.y;
+        pendingAim = null;
+        online.send({
+          type: 'intent',
+          action: 'flick',
+          ...(finalX !== undefined ? { x: finalX } : {}),
+          ...(finalY !== undefined ? { y: finalY } : {}),
+        });
+        renderer?.remoteInput('flick', finalX, finalY);
+      } else if (action === 'cancel') {
+        if (aimSendTimer !== null) {
+          clearTimeout(aimSendTimer);
+          aimSendTimer = null;
+        }
+        pendingAim = null;
+        online.send({ type: 'intent', action: 'cancel' });
+        renderer?.remoteInput('cancel');
       }
       return true;
     }
@@ -228,8 +231,13 @@ online.addEventListener('state', (event) => {
 });
 online.addEventListener('message', (event) => {
   const message = (event as CustomEvent<ServerMessage>).detail;
-  if (message.type === 'intent' && online.state.seat === 'host' && store.snapshot.match?.currentPlayer === 1) renderer?.remoteInput(message.action, message.x, message.y);
-  if (message.type === 'snapshot') renderer?.applyArenaSnapshot(message.arena);
+  if (message.type === 'intent' && online.state.seat === 'host') renderer?.remoteInput(message.action, message.x, message.y);
+  if (message.type === 'snapshot') {
+    renderer?.applyArenaSnapshot(message.arena);
+    if (online.state.seat === 'guest' && store.snapshot.phase === 'match') {
+      store.syncOnlineMatch(message.arena.score, message.arena.currentPlayer, 'match');
+    }
+  }
   if (message.type === 'state' && online.state.seat === 'guest') store.syncOnlineMatch(message.score, message.currentPlayer, message.phase);
 });
 
@@ -243,7 +251,11 @@ store.subscribe((state) => {
   const rival = state.match?.rivalName ?? (state.match?.mode === 'local' ? 'PLAYER 2' : state.match?.mode === 'quick' ? 'CLASS ACE' : 'AI rival');
   renderer?.setBoardState(state.player.name, rival, state.match?.score ?? [0, 0]);
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));
-  if (state.phase === 'result') renderer?.setMatchEnabled(false);
+  if (state.phase === 'result') {
+    renderer?.setMatchEnabled(false);
+  } else if (state.phase === 'match') {
+    renderer?.setMatchEnabled(true);
+  }
   if (state.match?.mode === 'online' && online.state.seat === 'host') {
     const onlineScore: readonly [number, number] = [state.match.score[0] ?? 0, state.match.score[1] ?? 0];
     const onlinePlayer: 0 | 1 = state.match.currentPlayer === 1 ? 1 : 0;

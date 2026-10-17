@@ -24,7 +24,7 @@ test('creates an invite and joins from a second device context', async ({ browse
   await host.locator('canvas').focus();
   await host.locator('canvas').press('ArrowUp');
   await host.locator('canvas').press('Space');
-  await expect(guest.locator('.turn-dock')).toContainText(/PRIYA.*TURN/i, { timeout: 15_000 });
+  await expect(guest.locator('.turn-dock')).toContainText(/YOUR TURN|PRIYA.*TURN/i, { timeout: 15_000 });
   await guest.locator('canvas').focus();
   await guest.locator('canvas').press('ArrowDown');
   await guest.locator('canvas').press('Space');
