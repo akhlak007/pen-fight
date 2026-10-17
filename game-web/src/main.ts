@@ -64,7 +64,13 @@ const ui = new UiRoot(store, {
     const current = storage.update({ playerName: store.snapshot.player.name });
     renderer?.setPlayerName(current.playerName);
     store.transition('home');
-    if (pendingRoom) { const room = pendingRoom; pendingRoom = null; store.transition('settingUpLocal'); online.join(room, store.snapshot.player.name); }
+    if (pendingRoom) {
+      const room = pendingRoom;
+      pendingRoom = null;
+      ui.setPendingInvite(null);
+      store.transition('settingUpLocal');
+      online.join(room, store.snapshot.player.name);
+    }
   },
   onPlay() {
     store.transition('selectingMode');
@@ -143,6 +149,7 @@ const ui = new UiRoot(store, {
     ambience.setEnabled(value);
   },
 });
+if (pendingRoom) ui.setPendingInvite(pendingRoom);
 
 function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;
@@ -268,7 +275,13 @@ async function finishBoot(): Promise<void> {
     await new Promise<void>((resolve) => window.setTimeout(resolve, save.settings.reducedMotion ? 20 : 170));
   }
   store.transition(save.playerName ? 'home' : 'naming');
-  if (pendingRoom && save.playerName) { const room = pendingRoom; pendingRoom = null; store.transition('settingUpLocal'); online.join(room, save.playerName); }
+  if (pendingRoom && save.playerName) {
+    const room = pendingRoom;
+    pendingRoom = null;
+    ui.setPendingInvite(null);
+    store.transition('settingUpLocal');
+    online.join(room, save.playerName);
+  }
 }
 
 void finishBoot().catch(() => {

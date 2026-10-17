@@ -56,6 +56,7 @@ export class UiRoot {
   #arenaAction: ArenaAction = 'ready';
   #nameDraft: string | null = null;
   #online: OnlineState = { status: 'idle' };
+  #pendingInvite: string | null = null;
   #state!: AppState;
 
   constructor(store: AppStore, private readonly actions: UiActions) {
@@ -119,11 +120,18 @@ export class UiRoot {
                   <span>2 of 12 pens · </span><span class="trimax-red">10 to the Trimax</span>
                 </div>
 
+                ${!hasName && this.#pendingInvite ? `
+                  <div class="invite-welcome-banner" role="status">
+                    <span class="invite-banner-badge">ROOM INVITATION</span>
+                    <p>You’ve been challenged to Pen Fight in Desk <strong>${escapeText(this.#pendingInvite)}</strong>! Claim your desk to enter the battle.</p>
+                  </div>
+                ` : ''}
+
                 <form class="home-name-form ${hasName ? 'name-saved' : 'name-active'}">
                   <label for="player-name">Your name</label>
                   <div class="notebook-name-line">
                     <input id="player-name" name="name" maxlength="18" autocomplete="nickname" placeholder="Write your name" value="${escapeText(inputValue)}" ${hasName ? '' : 'autofocus'}>
-                    <button type="submit">${hasName ? 'UPDATE' : 'Claim my desk'} <span aria-hidden="true">→</span></button>
+                    <button type="submit">${hasName ? 'UPDATE' : this.#pendingInvite ? `Claim my desk & Join ${escapeText(this.#pendingInvite)}` : 'Claim my desk'} <span aria-hidden="true">→</span></button>
                   </div>
                   <p class="form-error" role="alert"></p>
                 </form>
@@ -448,15 +456,16 @@ export class UiRoot {
 
     if (state.phase === 'settingUpLocal') {
       const onlineBusy = this.#online.status !== 'idle';
-      const room = this.#online.room ?? '';
+      const room = this.#online.room ?? this.#pendingInvite ?? '';
+      const isGuest = this.#online.seat === 'guest' || (onlineBusy && Boolean(this.#pendingInvite));
       this.#layer.innerHTML = `<div class="local-setup-screen">
         <div class="top-bar"><button class="glass-button back-button" type="button">← BACK</button></div>
         <section class="paper local-setup-card" aria-labelledby="local-setup-title">
-          <p class="eyebrow">FRIEND MATCH · LOCAL DESK</p>
-          <h1 id="local-setup-title">Choose your rival</h1>
-          <p class="local-player-one"><span>PLAYER 1 · BLUE PEN</span><strong>${escapeText(state.player.name)}</strong></p>
+          <p class="eyebrow">${onlineBusy ? (isGuest ? 'ONLINE FRIEND MATCH · GUEST' : 'ONLINE FRIEND MATCH · HOST') : 'FRIEND MATCH · LOCAL DESK'}</p>
+          <h1 id="local-setup-title">${onlineBusy ? (isGuest ? (room ? `Joining Desk ${escapeText(room)}` : 'Joining Friend’s Desk') : 'Invite a friend') : 'Choose your rival'}</h1>
+          <p class="local-player-one"><span>${onlineBusy ? (isGuest ? 'YOU (GUEST) · RED PEN' : 'YOU (HOST) · BLUE PEN') : 'PLAYER 1 · BLUE PEN'}</span><strong>${escapeText(state.player.name)}</strong></p>
           ${onlineBusy ? `<section class="online-room" aria-live="polite">
-            <span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : 'ONLINE INVITE'}</span>
+            <span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : isGuest ? 'JOINING ROOM' : 'ONLINE INVITE'}</span>
             ${this.#online.status === 'error' ? `
               ${this.#online.error ? `<p class="form-error">${escapeText(this.#online.error)}</p>` : '<p class="form-error">Could not connect to online room.</p>'}
               <div class="online-buttons">
@@ -475,7 +484,8 @@ export class UiRoot {
               ${room ? `<strong class="room-code">${escapeText(room)}</strong>` : ''}
               <p class="online-loading">Both desks ready! Entering match…</p>
             ` : `
-              <p class="online-loading">Opening a classroom online…</p>
+              ${room ? `<strong class="room-code">${escapeText(room)}</strong>` : ''}
+              <p class="online-loading">${isGuest ? `Connecting to desk ${escapeText(room)}…` : 'Opening a classroom online…'}</p>
               <div class="online-buttons">
                 <button class="glass-button cancel-online" type="button">Cancel</button>
               </div>
@@ -796,6 +806,11 @@ export class UiRoot {
   setOnlineState(state: OnlineState): void {
     this.#online = state;
     if (this.#state.phase === 'settingUpLocal' || this.#state.match?.mode === 'online') this.render(this.#state);
+  }
+
+  setPendingInvite(room: string | null): void {
+    this.#pendingInvite = room;
+    if (this.#state) this.render(this.#state);
   }
 
   setRoundMessage(message: string | null): void {
