@@ -1,4 +1,4 @@
-import { Peer, type DataConnection } from 'peerjs';
+import { MqttRelay } from './mqtt-relay';
 import {
   parseServerMessage,
   safeName,
@@ -16,18 +16,6 @@ export interface OnlineState {
   error?: string;
 }
 
-const PEER_CONFIG = {
-  debug: 0,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-    ],
-  },
-};
-
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function generateRoomCode(): string {
@@ -39,7 +27,8 @@ function generateRoomCode(): string {
 function shouldUseLocalWebSocket(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    if (new URL(location.href).searchParams.has('p2p')) return false;
+    const params = new URL(location.href).searchParams;
+    if (params.has('relay') || params.has('p2p')) return false;
   } catch {
     // Ignore URL parse error
   }
@@ -60,8 +49,7 @@ function getWebSocketUrl(): URL {
 
 export class OnlineSession extends EventTarget {
   #socket: WebSocket | null = null;
-  #peer: Peer | null = null;
-  #conn: DataConnection | null = null;
+  #relay: MqttRelay | null = null;
   #hostName = '';
   #state: OnlineState = { status: 'idle' };
   #seq = 0;
@@ -73,7 +61,7 @@ export class OnlineSession extends EventTarget {
 
   get connected(): boolean {
     if (this.#socket) return this.#socket.readyState === WebSocket.OPEN;
-    if (this.#conn) return Boolean(this.#conn.open);
+    if (this.#relay) return this.#relay.connected;
     return false;
   }
 
@@ -89,18 +77,12 @@ export class OnlineSession extends EventTarget {
     if (shouldUseLocalWebSocket()) {
       this.#connectWebSocket({ type: 'create', name });
     } else {
-      this.#createP2P(name);
+      this.#createRelayRoom(name);
     }
   }
 
   join(room: string, name: string): void {
     const normalized = room.toUpperCase();
-    const isHostStored = Boolean(sessionStorage.getItem(`pen-fight:${normalized}:host`));
-    if (isHostStored && !shouldUseLocalWebSocket()) {
-      this.#createP2P(name, normalized);
-      return;
-    }
-
     if (shouldUseLocalWebSocket()) {
       const stored =
         sessionStorage.getItem(`pen-fight:${normalized}:host`) ??
@@ -111,17 +93,20 @@ export class OnlineSession extends EventTarget {
           : { type: 'join', room: normalized, name },
       );
     } else {
-      this.#joinP2P(normalized, name);
+      this.#joinRelayRoom(normalized, name);
     }
   }
 
   send(message: OutgoingSequencedMessage): void {
-    if (!this.connected) return;
     const payload = JSON.stringify({ ...message, seq: ++this.#seq });
     if (this.#socket?.readyState === WebSocket.OPEN) {
       this.#socket.send(payload);
-    } else if (this.#conn?.open) {
-      this.#conn.send(payload);
+    } else if (this.#relay && this.#state.room) {
+      const targetTopic =
+        this.#state.seat === 'host'
+          ? `penfight/${this.#state.room}/guest`
+          : `penfight/${this.#state.room}/host`;
+      this.#relay.publish(targetTopic, payload);
     }
   }
 
@@ -139,13 +124,17 @@ export class OnlineSession extends EventTarget {
       this.#socket.close();
       this.#socket = null;
     }
-    if (this.#conn) {
-      this.#conn.close();
-      this.#conn = null;
-    }
-    if (this.#peer) {
-      this.#peer.destroy();
-      this.#peer = null;
+    if (this.#relay) {
+      if (this.#state.room && this.#state.seat) {
+        // Broadcast leave
+        const target =
+          this.#state.seat === 'host'
+            ? `penfight/${this.#state.room}/guest`
+            : `penfight/${this.#state.room}/host`;
+        this.#relay.publish(target, JSON.stringify({ type: 'peer', connected: false }));
+      }
+      this.#relay.close();
+      this.#relay = null;
     }
   }
 
@@ -174,15 +163,13 @@ export class OnlineSession extends EventTarget {
     socket.addEventListener('close', () => {
       if (this.#socket !== socket || this.#state.status === 'idle') return;
 
-      // If local dev server is not running, fall back seamlessly to P2P WebRTC
+      // If local dev server is not running, fall back seamlessly to global relay
       if (!opened && !import.meta.env.VITE_WS_URL) {
         this.#socket = null;
         if (first.type === 'create') {
-          this.#createP2P(first.name);
+          this.#createRelayRoom(first.name);
         } else if (first.type === 'join') {
-          this.#joinP2P(first.room, first.name);
-        } else if (first.type === 'resume') {
-          this.#joinP2P(first.room, 'Player');
+          this.#joinRelayRoom(first.room, first.name);
         }
         return;
       }
@@ -202,182 +189,145 @@ export class OnlineSession extends EventTarget {
     });
   }
 
-  #createP2P(name: string, existingRoom?: string, attempt = 0): void {
+  #createRelayRoom(name: string): void {
     this.#cleanup();
-    const room = existingRoom ?? generateRoomCode();
-    this.#set({ status: 'connecting', room });
+    const room = generateRoomCode();
     this.#hostName = safeName(name) || 'Player 1';
 
-    try {
-      const peerId = `pf-${room.toLowerCase()}`;
-      const peer = new Peer(peerId, PEER_CONFIG);
-      this.#peer = peer;
+    // Instantly show the room code and invite link without waiting for network!
+    sessionStorage.setItem(`pen-fight:${room}:host`, 'relay-host');
+    this.#set({
+      status: 'waiting',
+      room,
+      seat: 'host',
+      players: [this.#hostName],
+    });
 
-      peer.on('open', () => {
-        sessionStorage.setItem(`pen-fight:${room}:host`, 'p2p-host');
-        this.#set({
-          status: 'waiting',
-          room,
-          seat: 'host',
-          players: [this.#hostName],
-        });
-      });
+    const relay = new MqttRelay();
+    this.#relay = relay;
+    const hostTopic = `penfight/${room}/host`;
+    const guestTopic = `penfight/${room}/guest`;
 
-      peer.on('connection', (conn) => {
-        if (this.#conn && this.#conn.open) {
-          conn.on('open', () => {
-            conn.send(
-              JSON.stringify({
-                type: 'error',
-                code: 'room_full',
-                message: 'That room already has two players.',
-              }),
-            );
-            setTimeout(() => conn.close(), 400);
+    relay.onConnect = () => {
+      relay.subscribe(hostTopic);
+    };
+
+    relay.onMessage = (topic, raw) => {
+      if (topic !== hostTopic) return;
+      try {
+        const data = JSON.parse(raw);
+        if (data.type === 'join' && typeof data.name === 'string') {
+          const guestName = safeName(data.name) || 'Player 2';
+          // Send joined acknowledgment to guest
+          const joinedMsg: ServerMessage = {
+            type: 'joined',
+            room,
+            seat: 'guest',
+            token: 'relay-guest',
+            players: [this.#hostName, guestName],
+          };
+          relay.publish(guestTopic, JSON.stringify(joinedMsg));
+
+          // Set host ready state
+          this.#set({
+            status: 'ready',
+            room,
+            seat: 'host',
+            players: [this.#hostName, guestName],
           });
+
+          this.dispatchEvent(
+            new CustomEvent<ServerMessage>('message', {
+              detail: { type: 'peer', connected: true, name: guestName },
+            }),
+          );
           return;
         }
+      } catch {
+        // Ignore JSON error
+      }
 
-        this.#conn = conn;
+      this.#message(raw);
+    };
 
-        conn.on('data', (raw) => {
-          this.#handleP2PIncoming(conn, String(raw));
-        });
-
-        conn.on('close', () => {
-          if (this.#conn === conn) {
-            this.#conn = null;
-            this.#set({ ...this.#state, status: 'reconnecting' });
-            this.dispatchEvent(
-              new CustomEvent<ServerMessage>('message', {
-                detail: { type: 'peer', connected: false },
-              }),
-            );
-          }
-        });
-
-        conn.on('error', () => {
-          if (this.#conn === conn) {
-            this.#conn = null;
-            this.#set({ ...this.#state, status: 'reconnecting' });
-          }
-        });
-      });
-
-      peer.on('error', (err: { type?: string; message?: string }) => {
-        if (err?.type === 'unavailable-id' && attempt < 3 && !existingRoom) {
-          peer.destroy();
-          this.#createP2P(name, undefined, attempt + 1);
-          return;
-        }
-        this.#set({
-          status: 'error',
-          error: err?.message || 'Could not open online room. Check your internet connection.',
-        });
-      });
-    } catch {
+    relay.onError = (err) => {
       this.#set({
         status: 'error',
-        error: 'Failed to start peer connection.',
+        error: err.message || 'Connection error. Check your internet connection.',
       });
-    }
+    };
+
+    relay.onDisconnect = () => {
+      if (this.#state.status === 'ready') {
+        this.#set({ ...this.#state, status: 'reconnecting' });
+      }
+    };
+
+    relay.connect(`pf-h-${room.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`);
   }
 
-  #joinP2P(room: string, name: string): void {
+  #joinRelayRoom(room: string, name: string): void {
     this.#cleanup();
-    const normalized = room.toUpperCase();
-    this.#set({ status: 'connecting', room: normalized });
     const guestName = safeName(name) || 'Player 2';
+    this.#set({ status: 'connecting', room });
 
-    try {
-      const peer = new Peer(PEER_CONFIG);
-      this.#peer = peer;
+    const relay = new MqttRelay();
+    this.#relay = relay;
+    const hostTopic = `penfight/${room}/host`;
+    const guestTopic = `penfight/${room}/guest`;
 
-      peer.on('open', () => {
-        const targetPeerId = `pf-${normalized.toLowerCase()}`;
-        const conn = peer.connect(targetPeerId, { reliable: true });
-        this.#conn = conn;
+    let joinInterval: number | undefined;
 
-        conn.on('open', () => {
-          conn.send(
+    relay.onConnect = () => {
+      relay.subscribe(guestTopic);
+      // Send join message to host and retry until acknowledged
+      const sendJoin = () => {
+        if (this.#state.status !== 'ready') {
+          relay.publish(
+            hostTopic,
             JSON.stringify({
               type: 'join',
-              room: normalized,
+              room,
               name: guestName,
             }),
           );
-        });
-
-        conn.on('data', (raw) => {
-          this.#handleP2PIncoming(conn, String(raw));
-        });
-
-        conn.on('close', () => {
-          this.#set({ status: 'error', error: 'Host disconnected from match.' });
-        });
-
-        conn.on('error', () => {
-          this.#set({ status: 'error', error: 'Connection to host lost.' });
-        });
-      });
-
-      peer.on('error', (err: { type?: string; message?: string }) => {
-        if (err?.type === 'peer-unavailable') {
-          this.#set({
-            status: 'error',
-            error: 'Room not found. Check the code or ask your friend to create a new room.',
-          });
-        } else {
-          this.#set({
-            status: 'error',
-            error: err?.message || 'Could not connect to online room.',
-          });
         }
-      });
-    } catch {
+      };
+      sendJoin();
+      joinInterval = window.setInterval(sendJoin, 1500);
+    };
+
+    relay.onMessage = (topic, raw) => {
+      if (topic !== guestTopic) return;
+      if (joinInterval) {
+        clearInterval(joinInterval);
+        joinInterval = undefined;
+      }
+      this.#message(raw);
+    };
+
+    relay.onError = (err) => {
+      if (joinInterval) {
+        clearInterval(joinInterval);
+        joinInterval = undefined;
+      }
       this.#set({
         status: 'error',
-        error: 'Failed to connect to online room.',
+        error: err.message || 'Could not connect to online room.',
       });
-    }
-  }
+    };
 
-  #handleP2PIncoming(conn: DataConnection, raw: string): void {
-    try {
-      const data = JSON.parse(raw) as Record<string, unknown>;
-      if (this.#state.seat === 'host' && data.type === 'join' && typeof data.name === 'string') {
-        const guestName = safeName(data.name) || 'Guest';
-        const hostName = this.#hostName || this.#state.players?.[0] || 'Host';
-        const room = this.#state.room!;
-
-        const joinedMsg: ServerMessage = {
-          type: 'joined',
-          room,
-          seat: 'guest',
-          token: 'p2p-guest-token',
-          players: [hostName, guestName],
-        };
-        conn.send(JSON.stringify(joinedMsg));
-
-        this.#set({
-          status: 'ready',
-          room,
-          seat: 'host',
-          players: [hostName, guestName],
-        });
-
-        this.dispatchEvent(
-          new CustomEvent<ServerMessage>('message', {
-            detail: { type: 'peer', connected: true, name: guestName },
-          }),
-        );
-        return;
+    relay.onDisconnect = () => {
+      if (joinInterval) {
+        clearInterval(joinInterval);
+        joinInterval = undefined;
       }
-    } catch {
-      // Ignore parse failure
-    }
+      if (this.#state.status === 'ready') {
+        this.#set({ ...this.#state, status: 'reconnecting' });
+      }
+    };
 
-    this.#message(raw);
+    relay.connect(`pf-g-${room.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`);
   }
 
   #message(raw: string): void {
