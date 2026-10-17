@@ -506,7 +506,7 @@ export class UiRoot {
       const online = state.match?.mode === 'online';
       const activePlayer = state.match?.currentPlayer ?? 0;
       const aiTurn = state.match?.mode === 'quick' && activePlayer === 1;
-      const rivalName = local || online ? state.match?.rivalName ?? 'PLAYER 2' : 'CLASS ACE';
+      const rivalName = local || online ? state.match?.rivalName ?? 'PLAYER 2' : 'Priya';
       const activeName = activePlayer === 0 ? state.player.name : rivalName;
       const paused = state.phase === 'paused';
       const roundLocked = Boolean(this.#roundMessage);
@@ -517,30 +517,94 @@ export class UiRoot {
       const turnHint = paused ? 'Return to the game to continue' : roundLocked ? this.#roundMessage! : actionHint;
       const playerScore = state.match?.score[0] ?? 0;
       const rivalScore = state.match?.score[1] ?? 0;
-      this.#layer.innerHTML = `<header class="match-hud">
-        <button class="glass-button match-exit" type="button" aria-label="Leave match"><span>←</span> EXIT</button>
-        <span class="match-mode">${practice ? 'FREE PLAY' : online ? `ONLINE · ${escapeText(this.#online.room ?? '')}` : local ? 'LOCAL FRIEND' : 'QUICK MATCH'}</span>
-      </header>
-      <div class="match-footer">
-        <section class="round-banner paper" role="status" ${this.#roundMessage ? '' : 'hidden'}>${escapeText(this.#roundMessage ?? '')}</section>
-        <section class="power-dock" role="meter" aria-label="Flick power" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(this.#aimPower * 100)}">
-          <span>FLICK POWER</span><div class="power-track"><i></i></div><b>${Math.round(this.#aimPower * 100)}%</b>
-        </section>
-        <section class="scoreboard" aria-label="Match score">
-          <div class="competitor player ${activePlayer === 0 ? 'active' : ''}">
-            <span class="pen-swatch blue"></span><span class="competitor-copy"><small>${local || online ? 'PLAYER 1' : 'YOU'}</small><strong>${escapeText(state.player.name)}</strong></span>
-            <span class="score-pips" aria-hidden="true">${scorePips(playerScore)}</span><b>${playerScore}</b>
+
+      const badgeTurnText = actionTitle === 'playerMoving' || actionTitle === 'aiMoving'
+        ? 'SHOT IN MOTION'
+        : activePlayer === 0
+          ? 'your turn'
+          : `${rivalName.toLowerCase()}’s turn`;
+
+      this.#layer.innerHTML = `
+        <!-- Match Top Navigation Bar -->
+        <header class="match-hud match-top-bar" aria-label="Match controls">
+          <div class="match-bar-left">
+            <button class="glass-button match-exit" type="button" aria-label="Leave match">
+              <span>←</span> EXIT
+            </button>
+            <span class="match-mode match-mode-badge">${practice ? 'FREE PLAY' : online ? `ONLINE · ${escapeText(this.#online.room ?? '')}` : local ? 'LOCAL FRIEND' : 'QUICK MATCH'}</span>
           </div>
-          <section class="turn-dock ${activePlayer === 1 ? 'rival-turn' : ''} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
-            <span class="turn-indicator"></span><div><strong>${escapeText(turnTitle)}</strong><small>${escapeText(turnHint)}</small></div>
+
+          <div class="match-bar-right">
+            <button type="button" class="match-chip-btn friend-btn" data-action="friend">FRIEND</button>
+            <button type="button" class="match-chip-btn instant-btn" data-action="instant">INSTANT</button>
+            <button type="button" class="match-text-btn" data-action="community">community</button>
+            <button type="button" class="match-signin-btn" data-action="signin">SIGN IN</button>
+            <button type="button" class="match-menu-btn" data-action="leave" aria-label="Match menu">
+              <i></i><i></i><i></i>
+            </button>
+          </div>
+        </header>
+
+        <!-- Bottom Left Corner Watermark -->
+        <div class="match-corner-badge" aria-label="Pen Fight Pilot V5">
+          <span class="pilot-box"><span class="pilot-pen-icon" aria-hidden="true"></span>PEN FIGHT</span>
+          <span class="pilot-version">Pilot V5</span>
+        </div>
+
+        <!-- Bottom Right Sticky Badge (Matches Screenshot: 👉 your turn) -->
+        <section class="turn-dock desk-turn-sticker ${activePlayer === 1 ? 'rival-turn' : ''} ${roundLocked ? 'round-locked' : ''}" aria-label="Turn status" aria-live="polite" data-player="${activePlayer}" data-action="${this.#arenaAction}" data-ready-title="${escapeAttr(defaultTurnTitle)}" data-ready-hint="${escapeAttr(defaultTurnHint)}" data-locked="${paused || roundLocked}">
+          <span class="sticker-hand" aria-hidden="true">👉</span>
+          <div class="turn-copy">
+            <strong>${escapeText(turnTitle)}</strong>
+            <small class="${turnHint ? '' : 'sr-only'}">${escapeText(turnHint)}</small>
+          </div>
+        </section>
+
+        <!-- Match Footer Dock (Power Meter & Clean Scoreboard) -->
+        <div class="match-footer">
+          <section class="round-banner paper" role="status" ${this.#roundMessage ? '' : 'hidden'}>
+            ${escapeText(this.#roundMessage ?? '')}
           </section>
-          <div class="competitor rival ${activePlayer === 1 ? 'active' : ''}">
-            <b>${rivalScore}</b><span class="score-pips" aria-hidden="true">${scorePips(rivalScore)}</span>
-            <span class="competitor-copy"><small>${local || online ? 'PLAYER 2' : 'RIVAL'}</small><strong>${escapeText(rivalName)}</strong></span><span class="pen-swatch red"></span>
-          </div>
-        </section>
-      </div>`;
-      this.#layer.querySelector('.match-exit')?.addEventListener('click', this.actions.onBack);
+
+          <section class="power-dock" role="meter" aria-label="Flick power" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(this.#aimPower * 100)}">
+            <span class="power-label">FLICK POWER</span>
+            <div class="power-track"><i style="width: ${Math.round(this.#aimPower * 100)}%"></i></div>
+            <b class="power-percent">${Math.round(this.#aimPower * 100)}%</b>
+          </section>
+
+          <section class="scoreboard match-clean-scoreboard" aria-label="Match score">
+            <div class="competitor player ${activePlayer === 0 ? 'active' : ''}">
+              <span class="pen-swatch blue"></span>
+              <span class="competitor-copy"><small>${local || online ? 'PLAYER 1' : 'YOU'}</small><strong>${escapeText(state.player.name)}</strong></span>
+              <span class="score-pips" aria-hidden="true">${scorePips(playerScore)}</span>
+              <b>${playerScore}</b>
+            </div>
+            <div class="competitor rival ${activePlayer === 1 ? 'active' : ''}">
+              <b>${rivalScore}</b>
+              <span class="score-pips" aria-hidden="true">${scorePips(rivalScore)}</span>
+              <span class="competitor-copy"><small>${local || online ? 'PLAYER 2' : 'RIVAL'}</small><strong>${escapeText(rivalName)}</strong></span>
+              <span class="pen-swatch red"></span>
+            </div>
+          </section>
+        </div>
+      `;
+
+      this.#layer.querySelectorAll<HTMLElement>('.match-exit, [data-action="leave"]').forEach((btn) => {
+        btn.addEventListener('click', this.actions.onBack);
+      });
+      this.#layer.querySelector('[data-action="friend"]')?.addEventListener('click', () => {
+        this.actions.onPlayFriend();
+      });
+      this.#layer.querySelector('[data-action="instant"]')?.addEventListener('click', () => {
+        this.actions.onChooseMode('quick');
+      });
+      this.#layer.querySelector('[data-action="community"]')?.addEventListener('click', () => {
+        alert('Classroom Community is coming soon in the next school term!');
+      });
+      this.#layer.querySelector('[data-action="signin"]')?.addEventListener('click', () => {
+        alert('Player accounts will be available in Pilot V6!');
+      });
+
       this.setAimPower(this.#aimPower);
       return;
     }
