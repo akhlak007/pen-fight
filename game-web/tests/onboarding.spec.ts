@@ -261,3 +261,26 @@ test('visibility pause reports a locked match and resumes cleanly', async ({ pag
   });
   await expect(page.getByLabel('Turn status')).toContainText('YOUR TURN');
 });
+
+test('user can mute and unmute background sound in home and match HUD', async ({ page }) => {
+  await page.getByLabel('Your name').fill('Rafi');
+  await page.getByRole('button', { name: /Claim my desk/ }).click();
+
+  // On Home screen: verify audio toggle button exists and can be clicked to mute
+  const homeSoundBtn = page.getByRole('button', { name: /Mute sound/i });
+  await expect(homeSoundBtn).toBeVisible();
+  await homeSoundBtn.click();
+  await expect(page.getByRole('button', { name: /Unmute sound/i })).toBeVisible();
+
+  // Enter match and verify match audio toggle reflects muted state
+  await page.getByRole('button', { name: 'INSTANT' }).click();
+  await page.getByRole('button', { name: /Quick Match/ }).click();
+  const matchSoundBtn = page.getByRole('button', { name: /Unmute sound/i });
+  await expect(matchSoundBtn).toBeVisible();
+  await expect(matchSoundBtn).toContainText('MUTED');
+
+  // Click to unmute during match
+  await matchSoundBtn.click();
+  await expect(page.getByRole('button', { name: /Mute sound/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Mute sound/i })).toContainText('SOUND ON');
+});

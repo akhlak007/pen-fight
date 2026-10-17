@@ -7,6 +7,7 @@ import { StorageService } from './storage/storage-service';
 import { UiRoot } from './ui/ui-root';
 import { OnlineSession, type OnlineState } from './network/online-session';
 import type { ServerMessage } from './network/protocol';
+import { AmbienceService } from './audio/ambience-service';
 
 function createApplicationShell(): { root: HTMLElement; canvas: HTMLCanvasElement } {
   const root = document.createElement('main');
@@ -43,6 +44,8 @@ const storage = new StorageService(availableStorage);
 const save = storage.load();
 store.hydrate(save.playerName, save.settings);
 const online = new OnlineSession();
+const ambience = new AmbienceService('/audio/sound_of_class.mp3');
+ambience.setEnabled(save.settings.ambience);
 let pendingRoom = OnlineSession.roomFromUrl();
 
 let renderer: GameRenderer | null = null;
@@ -79,6 +82,7 @@ const ui = new UiRoot(store, {
     renderer?.focusArena();
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode('local', playerCount, store.snapshot.match?.playerNames);
+    ambience.startGameAmbience();
   },
   onCreateOnline() { online.create(store.snapshot.player.name); },
   onJoinOnline(room) { online.join(room, store.snapshot.player.name); },
@@ -95,6 +99,7 @@ const ui = new UiRoot(store, {
     store.transition('home');
     renderer?.focusRoom();
     renderer?.setMatchEnabled(false);
+    ambience.stopGameAmbience();
   },
   onChooseMode(mode) {
     storage.update({ lastMode: mode });
@@ -102,6 +107,7 @@ const ui = new UiRoot(store, {
     renderer?.focusArena();
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode(mode, 2);
+    ambience.startGameAmbience();
   },
   onRematch() {
     const match = store.snapshot.match;
@@ -115,6 +121,7 @@ const ui = new UiRoot(store, {
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames);
     if (mode === 'online') renderer?.setReplica(online.state.seat === 'guest');
+    ambience.startGameAmbience();
   },
   onEditName() {
     store.transition('naming');
@@ -124,6 +131,11 @@ const ui = new UiRoot(store, {
     storage.update({ settings: store.snapshot.settings });
     renderer?.setReducedMotion(value);
   },
+  onToggleAmbience(value) {
+    store.updateSettings({ ambience: value });
+    storage.update({ settings: store.snapshot.settings });
+    ambience.setEnabled(value);
+  },
 });
 
 function enterOnlineMatch(state: OnlineState): void {
@@ -131,6 +143,7 @@ function enterOnlineMatch(state: OnlineState): void {
   const rival = state.seat === 'host' ? state.players?.[1] : state.players?.[0];
   store.startOnlineMatch(rival || 'Online friend');
   renderer?.focusArena(); renderer?.setMatchMode('online'); renderer?.setReplica(state.seat === 'guest'); renderer?.setMatchEnabled(true);
+  ambience.startGameAmbience();
   renderer?.setInputListener((action, x, y) => {
     if (state.seat === 'guest') {
       if (store.snapshot.match?.currentPlayer === 1) {
@@ -167,6 +180,12 @@ store.subscribe((state) => {
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));
   if (state.phase === 'result') renderer?.setMatchEnabled(false);
   if (state.match?.mode === 'online' && online.state.seat === 'host') online.send({ type: 'state', score: state.match.score, currentPlayer: state.match.currentPlayer, phase: state.phase === 'result' ? 'result' : 'match' });
+  const inGameMatch = state.phase === 'match' || state.phase === 'paused' || state.phase === 'result';
+  if (inGameMatch && !ambience.shouldPlay) {
+    ambience.startGameAmbience();
+  } else if (!inGameMatch && ambience.shouldPlay) {
+    ambience.stopGameAmbience();
+  }
 });
 let onlineSnapshotSeq = 0;
 window.setInterval(() => {
@@ -175,6 +194,13 @@ window.setInterval(() => {
 }, 50);
 
 attachLifecycle(store);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    ambience.pauseForVisibility();
+  } else {
+    ambience.resumeFromVisibility();
+  }
+});
 renderer?.setPlayerName(save.playerName);
 
 async function finishBoot(): Promise<void> {

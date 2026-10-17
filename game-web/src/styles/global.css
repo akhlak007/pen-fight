@@ -719,6 +719,32 @@ select {
   display: flex;
   flex-direction: column;
 }
+.notebook-sound-toggle {
+  position: absolute;
+  z-index: 6;
+  top: 18px;
+  right: 118px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(30,63,132,.35);
+  background: transparent;
+  color: #1e3f84;
+  cursor: pointer;
+  font-size: 16px;
+  display: grid;
+  place-items: center;
+  transition: transform .15s ease, background .15s ease;
+}
+.notebook-sound-toggle:hover {
+  transform: scale(1.08);
+  background: rgba(30,63,132,.08);
+}
+.notebook-sound-toggle.muted {
+  border-color: rgba(199,61,45,.4);
+  color: #c73d2d;
+  background: rgba(199,61,45,.06);
+}
 .notebook-settings {
   position: absolute;
   z-index: 6;
@@ -1050,6 +1076,20 @@ select {
 .match-chip-btn:hover {
   background: rgba(50, 32, 16, .75);
 }
+.audio-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.audio-toggle-btn.muted {
+  border-color: rgba(220, 80, 60, .5);
+  color: #ff9d8c;
+  background: rgba(60, 20, 16, .65);
+}
+.audio-toggle-btn .audio-icon {
+  font-size: 13px;
+  line-height: 1;
+}
 .match-text-btn {
   background: transparent;
   border: 0;
@@ -1235,6 +1275,8 @@ select {
   .match-mode { padding-inline: 9px; }
   .turn-dock { max-width: 150px; padding-inline: 8px; }
   .turn-dock small { display: none; }
+  .audio-toggle-btn .audio-label { display: none; }
+  .audio-toggle-btn { padding: 6px 9px; min-width: 32px; justify-content: center; }
   .power-dock > span { display: none; }
   .power-dock { grid-template-columns: 78px 28px; }
   .power-track { width: 78px; }
@@ -1263,6 +1305,7 @@ select {
   .route-row > span { display: grid; gap: 2px; }
   .route-row em { display: none; }
   .notebook-right { min-height: 700px; }
+  .notebook-sound-toggle { top: 14px; right: 58px; }
   .notebook-settings { top: 14px; right: 18px; }
   .play-heading { margin-top: 44px; font-size: 17px; }
   .notebook-ranking { right: 24px; left: 38px; }
@@ -1308,6 +1351,9 @@ select {
   .result-actions { flex-wrap: wrap; gap: 16px; margin-top: 22px; }
   .result-actions > * { min-height: 44px; }
   .settings-popover { right: max(8px, var(--safe-right)); width: min(250px, calc(100% - 16px)); }
+  .match-text-btn, .match-signin-btn { display: none; }
+  .match-chip-btn { padding: 5px 8px; font-size: 10px; }
+  .match-bar-right { gap: 5px; }
   .turn-dock { max-width: 118px; }
   .turn-dock strong { font-size: 10px; letter-spacing: .06em; }
   .power-dock { grid-template-columns: 68px 27px; }

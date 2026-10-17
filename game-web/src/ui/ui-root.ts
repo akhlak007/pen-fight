@@ -15,6 +15,7 @@ export interface UiActions {
   onChooseMode(mode: 'quick' | 'practice'): void;
   onEditName(): void;
   onToggleReducedMotion(value: boolean): void;
+  onToggleAmbience(value: boolean): void;
   onRematch(): void;
 }
 
@@ -248,6 +249,7 @@ export class UiRoot {
 
             <!-- Right Notebook Page -->
             <div class="notebook-page notebook-right">
+              <button class="notebook-sound-toggle ${state.settings.ambience ? '' : 'muted'}" data-action="toggle-audio" type="button" aria-label="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}" title="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}">${state.settings.ambience ? '🔊' : '🔇'}</button>
               <button class="notebook-settings" data-action="settings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="desk-settings">⚙</button>
               <div class="desk-pen-prop" aria-hidden="true">
                 <img src="/blue_pen.jpg" alt="" class="pen-img-prop" />
@@ -333,6 +335,7 @@ export class UiRoot {
 
           <aside class="settings-popover paper" id="desk-settings" hidden>
             <strong>Desk settings</strong>
+            <label><span>Classroom ambience</span><input data-setting="ambience" type="checkbox" ${state.settings.ambience ? 'checked' : ''}></label>
             <label><span>Calm camera</span><input data-setting="motion" type="checkbox" ${state.settings.reducedMotion ? 'checked' : ''}></label>
           </aside>
 
@@ -427,8 +430,16 @@ export class UiRoot {
           settingsButton?.focus();
         }
       });
+      this.#layer.querySelector<HTMLInputElement>('[data-setting="ambience"]')?.addEventListener('change', (event) => {
+        this.actions.onToggleAmbience((event.currentTarget as HTMLInputElement).checked);
+      });
       this.#layer.querySelector<HTMLInputElement>('[data-setting="motion"]')?.addEventListener('change', (event) => {
         this.actions.onToggleReducedMotion((event.currentTarget as HTMLInputElement).checked);
+      });
+      this.#layer.querySelectorAll<HTMLElement>('[data-action="toggle-audio"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.actions.onToggleAmbience(!state.settings.ambience);
+        });
       });
       if (!hasName) queueMicrotask(() => input?.focus());
       return;
@@ -614,6 +625,10 @@ export class UiRoot {
           </div>
 
           <div class="match-bar-right">
+            <button type="button" class="match-chip-btn audio-toggle-btn ${state.settings.ambience ? '' : 'muted'}" data-action="toggle-audio" aria-label="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}" title="${state.settings.ambience ? 'Mute sound' : 'Unmute sound'}">
+              <span class="audio-icon" aria-hidden="true">${state.settings.ambience ? '🔊' : '🔇'}</span>
+              <span class="audio-label">${state.settings.ambience ? 'SOUND ON' : 'MUTED'}</span>
+            </button>
             <button type="button" class="match-chip-btn friend-btn" data-action="friend">FRIEND</button>
             <button type="button" class="match-chip-btn instant-btn" data-action="instant">INSTANT</button>
             <button type="button" class="match-text-btn" data-action="community">community</button>
@@ -679,6 +694,9 @@ export class UiRoot {
 
       this.#layer.querySelectorAll<HTMLElement>('.match-exit, [data-action="leave"]').forEach((btn) => {
         btn.addEventListener('click', this.actions.onBack);
+      });
+      this.#layer.querySelector('[data-action="toggle-audio"]')?.addEventListener('click', () => {
+        this.actions.onToggleAmbience(!state.settings.ambience);
       });
       this.#layer.querySelector('[data-action="friend"]')?.addEventListener('click', () => {
         this.actions.onPlayFriend();
