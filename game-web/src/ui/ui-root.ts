@@ -682,5 +682,15 @@ export class UiRoot {
     );
   }
 
+  triggerHit(intensity: number): void {
+    if (this.#state?.settings?.reducedMotion) return;
+    this.#layer.classList.remove('pen-hit-pulse');
+    void this.#layer.offsetWidth;
+    this.#layer.classList.add('pen-hit-pulse');
+    window.setTimeout(() => {
+      this.#layer.classList.remove('pen-hit-pulse');
+    }, 280);
+  }
+
   dispose(): void { this.#unsubscribe(); this.#layer.remove(); }
 }

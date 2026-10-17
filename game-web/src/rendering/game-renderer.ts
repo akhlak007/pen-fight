@@ -23,6 +23,8 @@ export class GameRenderer {
   #dragStart: { point: THREE.Vector3; pointerId: number } | null = null;
   #keyboardAim: { x: number; y: number } | null = null;
   #inputListener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null = null;
+  #hitListener: ((intensity: number) => void) | null = null;
+  #cameraTrauma = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -35,6 +37,10 @@ export class GameRenderer {
     this.#scene.background = new THREE.Color('#3f4633');
     this.#scene.fog = new THREE.FogExp2('#4c523c', 0.008);
     this.#classroom = createClassroom();
+    this.#classroom.setHitListener((intensity) => {
+      this.#hitShake(intensity);
+      this.#hitListener?.(intensity);
+    });
     this.#scene.add(this.#classroom.group);
     this.#addLights();
     this.focusRoom();
@@ -110,12 +116,32 @@ export class GameRenderer {
       const delta = Math.min(this.#timer.getDelta(), 0.05);
       if (!this.#suspended) this.#classroom.update(time, delta, this.#reducedMotion);
       if (!this.#reducedMotion) {
-        this.#camera.position.x = Math.sin(time * 0.00008) * 0.38;
+        let shakeX = 0;
+        let shakeY = 0;
+        if (this.#cameraTrauma > 0.001) {
+          const shake = this.#cameraTrauma * this.#cameraTrauma * 0.42;
+          shakeX = Math.sin(time * 0.075) * shake;
+          shakeY = Math.cos(time * 0.095) * shake * 0.5;
+          this.#cameraTrauma = Math.max(0, this.#cameraTrauma - delta * 3.6);
+        }
+        const baseY = this.#matchEnabled ? 20.5 : 21;
+        const baseZ = this.#matchEnabled ? 18.5 : 19;
+        this.#camera.position.set(
+          Math.sin(time * 0.00008) * 0.38 + shakeX,
+          baseY + shakeY,
+          baseZ,
+        );
         this.#camera.lookAt(this.#target);
       }
       this.#renderer.render(this.#scene, this.#camera);
     });
     this.#frame = 1;
+  }
+
+  setHitListener(listener: ((intensity: number) => void) | null): void { this.#hitListener = listener; }
+  #hitShake(intensity: number): void {
+    if (this.#reducedMotion) return;
+    this.#cameraTrauma = Math.min(1.0, this.#cameraTrauma + THREE.MathUtils.clamp(intensity / 9, 0.25, 0.75));
   }
 
   setPlayerName(name: string): void { this.#classroom.updateBoard(name); }

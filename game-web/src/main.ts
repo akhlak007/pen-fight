@@ -154,6 +154,7 @@ renderer?.setTurnListener((player) => store.setMatchTurn(player));
 renderer?.setAimListener((power) => ui.setAimPower(power));
 renderer?.setRoundListener((message) => ui.setRoundMessage(message));
 renderer?.setActionListener((action) => ui.setArenaAction(action));
+renderer?.setHitListener((intensity) => ui.triggerHit(intensity));
 store.subscribe((state) => {
   renderer?.setBoardState(state.player.name, state.match?.rivalName ?? 'AI rival', state.match?.score ?? [0, 0]);
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));

@@ -136,29 +136,29 @@ function createLoosePaper(): THREE.Group {
 
 function createArenaTable(material: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  const top = new THREE.Mesh(new RoundedBoxGeometry(9.2, 0.46, 12.85, 5, 0.16), material);
+  const top = new THREE.Mesh(new RoundedBoxGeometry(11.8, 0.46, 14.8, 5, 0.16), material);
   top.position.y = 2.32;
   group.add(top);
   const apronMaterial = new THREE.MeshStandardMaterial({ color: '#4b2c18', roughness: 0.62, metalness: 0.03 });
-  const frontApron = new THREE.Mesh(new RoundedBoxGeometry(8.65, 0.55, 0.2, 3, 0.05), apronMaterial);
-  frontApron.position.set(0, 2.02, 6.18);
+  const frontApron = new THREE.Mesh(new RoundedBoxGeometry(11.2, 0.55, 0.2, 3, 0.05), apronMaterial);
+  frontApron.position.set(0, 2.02, 7.15);
   const backApron = frontApron.clone();
-  backApron.position.z = -6.18;
-  const sideApron = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, 12.15, 3, 0.05), apronMaterial);
-  sideApron.position.set(4.35, 2.02, 0);
+  backApron.position.z = -7.15;
+  const sideApron = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, 14.1, 3, 0.05), apronMaterial);
+  sideApron.position.set(5.65, 2.02, 0);
   const otherSideApron = sideApron.clone();
-  otherSideApron.position.x = -4.35;
+  otherSideApron.position.x = -5.65;
   group.add(frontApron, backApron, sideApron, otherSideApron);
 
   const metal = new THREE.MeshStandardMaterial({ color: '#17191a', metalness: 0.8, roughness: 0.27 });
-  for (const x of [-3.55, 3.55]) {
-    for (const z of [-5.05, 5.05]) {
+  for (const x of [-4.85, 4.85]) {
+    for (const z of [-5.9, 5.9]) {
       const leg = new THREE.Mesh(new RoundedBoxGeometry(0.27, 2.2, 0.27, 2, 0.05), metal);
       leg.position.set(x, 1.08, z);
       group.add(leg);
     }
   }
-  const crossbar = new THREE.Mesh(new RoundedBoxGeometry(7.25, 0.16, 0.16, 2, 0.04), metal);
+  const crossbar = new THREE.Mesh(new RoundedBoxGeometry(9.8, 0.16, 0.16, 2, 0.04), metal);
   crossbar.position.set(0, 0.72, 0);
   group.add(crossbar);
 
@@ -170,15 +170,15 @@ function createArenaTable(material: THREE.Material): THREE.Group {
     strip.position.set(x, 2.558, z);
     group.add(strip);
   };
-  addStrip(0.055, 11.7, 0, 0, accent);
-  addStrip(8.5, 0.045, 0, 0, marking);
-  addStrip(8.5, 0.045, 0, -5.82, marking);
-  addStrip(8.5, 0.045, 0, 5.82, marking);
-  addStrip(0.045, 11.68, -4.25, 0, marking);
-  addStrip(0.045, 11.68, 4.25, 0, marking);
+  addStrip(0.055, 13.8, 0, 0, accent);
+  addStrip(11.1, 0.045, 0, 0, marking);
+  addStrip(11.1, 0.045, 0, -6.85, marking);
+  addStrip(11.1, 0.045, 0, 6.85, marking);
+  addStrip(0.045, 13.75, -5.55, 0, marking);
+  addStrip(0.045, 13.75, 5.55, 0, marking);
 
-  for (const [x, z] of [[-3.72, 5.25], [3.72, -5.25]] as const) {
-    const zone = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.48, 48), accent);
+  for (const [x, z] of [[-4.6, 6.0], [4.6, -6.0]] as const) {
+    const zone = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.53, 48), accent);
     zone.rotation.x = -Math.PI / 2;
     zone.position.set(x, 2.562, z);
     group.add(zone);
@@ -202,6 +202,7 @@ export interface ClassroomScene {
   setAimListener(listener: (power: number) => void): void;
   setRoundListener(listener: (message: string | null) => void): void;
   setActionListener(listener: (action: ArenaAction) => void): void;
+  setHitListener(listener: (intensity: number) => void): void;
   setMatchMode(mode: MatchMode): void;
   getArenaSnapshot(seq: number, score: readonly [number, number]): ArenaSnapshot;
   applyArenaSnapshot(snapshot: ArenaSnapshot): void;
@@ -341,6 +342,160 @@ export function createClassroom(): ClassroomScene {
   turnRing.position.y = 2.568;
   group.add(turnRing);
 
+  const shockwaveGeometry = new THREE.RingGeometry(0.12, 0.42, 36);
+  const shockwaveMaterial = new THREE.MeshBasicMaterial({
+    color: '#ffffff',
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const shockwave = new THREE.Mesh(shockwaveGeometry, shockwaveMaterial);
+  shockwave.rotation.x = -Math.PI / 2;
+  shockwave.visible = false;
+  group.add(shockwave);
+  let shockwaveTimer = 0;
+
+  const starShape = new THREE.Shape();
+  const starPoints = 4;
+  for (let i = 0; i < starPoints * 2; i++) {
+    const angle = (i * Math.PI) / starPoints;
+    const radius = i % 2 === 0 ? 0.95 : 0.22;
+    const px = Math.cos(angle) * radius;
+    const py = Math.sin(angle) * radius;
+    if (i === 0) starShape.moveTo(px, py);
+    else starShape.lineTo(px, py);
+  }
+  starShape.closePath();
+  const starGeometry = new THREE.ShapeGeometry(starShape);
+  const starMaterial = new THREE.MeshBasicMaterial({
+    color: '#fff375',
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const impactStar = new THREE.Mesh(starGeometry, starMaterial);
+  impactStar.rotation.x = -Math.PI / 2;
+  impactStar.visible = false;
+  group.add(impactStar);
+  let starTimer = 0;
+
+  interface SparkParticle {
+    mesh: THREE.Mesh;
+    velocity: THREE.Vector3;
+    rotSpeed: THREE.Vector3;
+    life: number;
+    maxLife: number;
+    baseScale: number;
+    active: boolean;
+  }
+  const sparkColors = ['#ffffff', '#fff799', '#ffaa44', '#70c9ff', '#ff5533'];
+  const sparkBoxGeom = new THREE.BoxGeometry(0.11, 0.11, 0.11);
+  const sparkGroup = new THREE.Group();
+  group.add(sparkGroup);
+  const sparks: SparkParticle[] = [];
+  for (let i = 0; i < 16; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: sparkColors[i % sparkColors.length],
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(sparkBoxGeom, mat);
+    mesh.visible = false;
+    sparkGroup.add(mesh);
+    sparks.push({
+      mesh,
+      velocity: new THREE.Vector3(),
+      rotSpeed: new THREE.Vector3(),
+      life: 0,
+      maxLife: 0.38,
+      baseScale: 0.8 + Math.random() * 0.6,
+      active: false,
+    });
+  }
+
+  function spawnHitSparks(contactX: number, contactZ: number, normal: THREE.Vector2, intensity: number) {
+    const burstSpeed = THREE.MathUtils.clamp(intensity * 1.8, 4.5, 12);
+    for (const spark of sparks) {
+      spark.mesh.position.set(
+        contactX + (Math.random() - 0.5) * 0.2,
+        2.62,
+        contactZ + (Math.random() - 0.5) * 0.2,
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (0.4 + Math.random() * 0.8) * burstSpeed;
+      spark.velocity.set(
+        Math.cos(angle) * speed + normal.x * (burstSpeed * 0.35),
+        2.5 + Math.random() * 4.2,
+        Math.sin(angle) * speed + normal.y * (burstSpeed * 0.35),
+      );
+      spark.rotSpeed.set(
+        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 22,
+      );
+      spark.life = spark.maxLife = 0.28 + Math.random() * 0.18;
+      spark.active = true;
+      spark.mesh.visible = true;
+      spark.mesh.scale.setScalar(spark.baseScale);
+      (spark.mesh.material as THREE.MeshBasicMaterial).opacity = 1;
+    }
+  }
+
+  let sharedAudioContext: AudioContext | null = null;
+  function playPenClackSound(intensity: number) {
+    try {
+      if (typeof window === 'undefined') return;
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!sharedAudioContext) sharedAudioContext = new AudioCtx();
+      if (sharedAudioContext.state === 'suspended') void sharedAudioContext.resume();
+      const ctx = sharedAudioContext;
+      const now = ctx.currentTime;
+      const vol = Math.min(1.0, Math.max(0.18, intensity / 7));
+
+      const bufferSize = Math.floor(ctx.sampleRate * 0.032);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.22));
+      }
+      const noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+      const bandpass = ctx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.setValueAtTime(2600, now);
+      bandpass.Q.setValueAtTime(4.0, now);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(vol * 0.9, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
+      noiseSource.connect(bandpass);
+      bandpass.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noiseSource.start(now);
+
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(860, now);
+      osc.frequency.exponentialRampToValueAtTime(180, now + 0.045);
+      oscGain.gain.setValueAtTime(vol * 0.55, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+      osc.connect(oscGain);
+      oscGain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } catch {
+      // Graceful fallback for audio restrictions
+    }
+  }
+
+  let blueWobble = 0;
+  let redWobble = 0;
+  let hitListener: (intensity: number) => void = () => undefined;
+
   function resetPenPositions(): void {
     blue.position.copy(blueStart);
     red.position.copy(redStart);
@@ -357,6 +512,13 @@ export function createClassroom(): ClassroomScene {
     aimListener(0);
     aimLine.visible = false;
     aimHead.visible = false;
+    shockwave.visible = false;
+    shockwaveTimer = 0;
+    impactStar.visible = false;
+    starTimer = 0;
+    for (const s of sparks) { s.active = false; s.mesh.visible = false; }
+    blueWobble = 0;
+    redWobble = 0;
   }
 
   function launchAi(time: number): void {
@@ -469,7 +631,90 @@ export function createClassroom(): ClassroomScene {
           const glancingSpeed = blueVelocity.clone().sub(redVelocity).dot(tangent);
           blueAngularVelocity -= glancingSpeed * 0.13;
           redAngularVelocity += glancingSpeed * 0.13;
+
+          const contactX = (blue.position.x + red.position.x) * 0.5;
+          const contactZ = (blue.position.z + red.position.z) * 0.5;
+
+          shockwave.position.set(contactX, 2.585, contactZ);
+          shockwave.scale.setScalar(0.4);
+          shockwave.visible = true;
+          shockwaveTimer = 0.35;
+          (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
+
+          impactStar.position.set(contactX, 2.61, contactZ);
+          impactStar.rotation.z = Math.random() * Math.PI;
+          impactStar.scale.setScalar(1.5);
+          impactStar.visible = true;
+          starTimer = 0.22;
+          (impactStar.material as THREE.MeshBasicMaterial).opacity = 1.0;
+
+          spawnHitSparks(contactX, contactZ, normal, relative);
+
+          const wobbleIntensity = THREE.MathUtils.clamp(relative * 0.045, 0.06, 0.24);
+          blueWobble = wobbleIntensity;
+          redWobble = wobbleIntensity;
+
+          playPenClackSound(relative);
+          hitListener(relative);
         }
+      }
+
+      if (shockwaveTimer > 0) {
+        shockwaveTimer -= delta;
+        const progress = 1 - Math.max(0, shockwaveTimer / 0.35);
+        shockwave.scale.setScalar(0.4 + progress * 3.4);
+        (shockwave.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - progress) * 0.95);
+        if (shockwaveTimer <= 0) shockwave.visible = false;
+      }
+
+      if (starTimer > 0) {
+        starTimer -= delta;
+        const starProgress = 1 - Math.max(0, starTimer / 0.22);
+        impactStar.scale.setScalar(Math.max(0, (1 - starProgress) * 1.5));
+        impactStar.rotation.z += delta * 7;
+        (impactStar.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - starProgress);
+        if (starTimer <= 0) impactStar.visible = false;
+      }
+
+      for (const spark of sparks) {
+        if (!spark.active) continue;
+        spark.life -= delta;
+        if (spark.life <= 0) {
+          spark.active = false;
+          spark.mesh.visible = false;
+          continue;
+        }
+        spark.mesh.position.x += spark.velocity.x * delta;
+        spark.mesh.position.y += spark.velocity.y * delta;
+        spark.mesh.position.z += spark.velocity.z * delta;
+        spark.velocity.y -= 18 * delta;
+        if (spark.mesh.position.y < 2.58) {
+          spark.mesh.position.y = 2.58;
+          spark.velocity.y = -spark.velocity.y * 0.3;
+        }
+        spark.mesh.rotation.x += spark.rotSpeed.x * delta;
+        spark.mesh.rotation.y += spark.rotSpeed.y * delta;
+        spark.mesh.rotation.z += spark.rotSpeed.z * delta;
+        const sparkRatio = spark.life / spark.maxLife;
+        spark.mesh.scale.setScalar(spark.baseScale * sparkRatio);
+        (spark.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, sparkRatio * 1.4);
+      }
+
+      if (blueWobble > 0.001) {
+        blue.position.y = 2.62 + Math.abs(Math.sin(time * 0.04)) * blueWobble;
+        blue.rotation.z += Math.sin(time * 0.05) * blueWobble * 0.4;
+        blueWobble = Math.max(0, blueWobble - delta * 0.85);
+      } else {
+        blue.position.y = 2.62;
+        blue.rotation.z = 0;
+      }
+      if (redWobble > 0.001) {
+        red.position.y = 2.64 + Math.abs(Math.cos(time * 0.042)) * redWobble;
+        red.rotation.z -= Math.sin(time * 0.05) * redWobble * 0.4;
+        redWobble = Math.max(0, redWobble - delta * 0.85);
+      } else {
+        red.position.y = 2.64;
+        red.rotation.z = 0;
       }
       const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y);
       const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y);
@@ -619,6 +864,9 @@ export function createClassroom(): ClassroomScene {
     },
     setActionListener(listener: (action: ArenaAction) => void) {
       actionListener = listener;
+    },
+    setHitListener(listener: (intensity: number) => void) {
+      hitListener = listener;
     },
     setMatchMode(mode: MatchMode) {
       matchMode = mode;

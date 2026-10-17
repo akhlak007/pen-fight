@@ -38,7 +38,7 @@ describe('pen fight table rules', () => {
   it('keeps a pen in play while most of its body is still supported', () => {
     expect(isOutsideTable(3.9, 0.4)).toBe(false);
     expect(penHasFallen(3.9, 0.4, 0)).toBe(false);
-    expect(penHasFallen(5.25, 0.4, 0)).toBe(true);
+    expect(penHasFallen(6.8, 0.4, 0)).toBe(true);
   });
 
   it('maps a pull-back gesture to a freely aimed opposite shot', () => {
