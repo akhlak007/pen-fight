@@ -41,6 +41,12 @@ export interface ArenaTremor {
   readonly pulses: number;
 }
 
+export interface ArenaVisualIdentity {
+  readonly key: string;
+  readonly accent: string;
+  readonly tint: string;
+}
+
 export interface ArenaChallenge {
   readonly level: number;
   readonly tier: number;
@@ -54,6 +60,7 @@ export interface ArenaChallenge {
   readonly obstacles: readonly ArenaObstacle[];
   readonly frictionZones: readonly ArenaFrictionZone[];
   readonly tremor: ArenaTremor | null;
+  readonly visual: ArenaVisualIdentity;
   readonly ai: {
     readonly aimError: number;
     readonly minImpulse: number;
@@ -71,6 +78,15 @@ const BASE_SPAWNS: readonly [ArenaSpawn, ArenaSpawn] = [
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function visualForLevel(level: number): ArenaVisualIdentity {
+  const hue = round((level * 137.508) % 360);
+  return {
+    key: `level-${level.toString().padStart(2, '0')}`,
+    accent: `hsl(${hue}, 82%, 58%)`,
+    tint: `hsl(${hue}, 68%, 43%)`,
+  };
 }
 
 interface ObstacleEnvelope { readonly x: number; readonly z: number; readonly halfWidth: number; readonly halfDepth: number }
@@ -145,6 +161,7 @@ function baseChallenge(level: number, tier: number, name: string, hazard: ArenaH
     obstacles: [],
     frictionZones: [],
     tremor: null,
+    visual: visualForLevel(level),
     ai: {
       aimError: round(Math.max(0.035, 0.18 - level * 0.00135)),
       minImpulse: round(4.8 + level * 0.045),
@@ -157,6 +174,7 @@ export const STANDARD_ARENA: ArenaChallenge = Object.freeze({
   ...baseChallenge(1, 0, 'Classic Classroom', 'standard'),
   spawns: BASE_SPAWNS,
   ai: { aimError: 0.14, minImpulse: 4.2, maxImpulse: 11.2 },
+  visual: { key: 'classic', accent: '#ca512b', tint: '#6b3b20' },
 });
 
 function generatedChallenge(level: number): ArenaChallenge {
@@ -289,6 +307,7 @@ function generatedChallenge(level: number): ArenaChallenge {
 export function validateChallenge(challenge: ArenaChallenge): { valid: true } | { valid: false; reason: string } {
   const finite = [challenge.level, challenge.tier, challenge.difficulty, challenge.halfWidth, challenge.halfDepth, challenge.centerZ].every(Number.isFinite);
   if (!finite || challenge.halfWidth < 4.6 || challenge.halfWidth > BASE_WIDTH || challenge.halfDepth < 6.4 || challenge.halfDepth > BASE_DEPTH) return { valid: false, reason: 'unsupported table bounds' };
+  if (!challenge.visual?.key || !challenge.visual.accent || !challenge.visual.tint) return { valid: false, reason: 'invalid visual identity' };
   if (![challenge.ai.aimError, challenge.ai.minImpulse, challenge.ai.maxImpulse].every(Number.isFinite)
     || challenge.ai.aimError < 0.02 || challenge.ai.aimError > 0.2
     || challenge.ai.minImpulse < 3.5 || challenge.ai.maxImpulse >= 21 || challenge.ai.minImpulse > challenge.ai.maxImpulse) return { valid: false, reason: 'unsafe AI settings' };

@@ -47,6 +47,20 @@ test('shows the visible chalk-gate challenge at level 4', async ({ page }) => {
   await expect(canvas).toHaveAttribute('data-arena-hazard', 'rulers');
 });
 
+test('gives levels 5 and 6 different permanent visual themes', async ({ page }) => {
+  await setXp(page, 520);
+  await page.getByRole('button', { name: 'INSTANT' }).click();
+  await page.getByRole('button', { name: /Quick Match/ }).click();
+  const canvas = page.getByLabel(/3D classroom arena/);
+  await expect(canvas).toHaveAttribute('data-arena-theme', 'level-05');
+
+  await page.getByRole('button', { name: 'Leave match' }).click();
+  await setXp(page, 700);
+  await page.getByRole('button', { name: 'INSTANT' }).click();
+  await page.getByRole('button', { name: /Quick Match/ }).click();
+  await expect(canvas).toHaveAttribute('data-arena-theme', 'level-06');
+});
+
 test('starts level 1 on the training desk and keeps the locked arena after rerenders', async ({ page }) => {
   await page.getByRole('button', { name: 'INSTANT' }).click();
   await page.getByRole('button', { name: /Quick Match/ }).click();

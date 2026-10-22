@@ -169,6 +169,27 @@ describe('classroom aiming preview', () => {
     expect(scene.group.getObjectByName('arena-obstacle:training-gate-right-4')).toBeDefined();
   });
 
+  it('renders distinct permanent tabletop themes and number badges across representative levels', () => {
+    const representativeLevels = [1, 5, 6, 50, 99];
+    const renderedColors = new Set<string>();
+    for (const level of representativeLevels) {
+      const challenge = challengeForLevel(level);
+      scene.setMatchMode('quick', 2, undefined, challenge);
+      const badge = scene.group.getObjectByName('arena-level-badge');
+      const tint = scene.group.getObjectByName('arena-level-tint') as THREE.Mesh | undefined;
+      expect(badge?.userData.level).toBe(level);
+      expect(badge?.userData.theme).toBe(challenge.visual.key);
+      expect(tint).toBeDefined();
+      const material = tint?.material as THREE.MeshBasicMaterial | undefined;
+      if (material) renderedColors.add(material.color.getHexString());
+    }
+    expect(renderedColors.size).toBe(representativeLevels.length);
+
+    scene.setMatchMode('practice');
+    expect(scene.group.getObjectByName('arena-level-badge')).toBeUndefined();
+    expect(scene.group.getObjectByName('arena-level-tint')).toBeUndefined();
+  });
+
   it('keeps patrolling chalk moving while the player is aiming without moving the pens', () => {
     const challenge = challengeForLevel(7);
     const chalk = challenge.obstacles[0];

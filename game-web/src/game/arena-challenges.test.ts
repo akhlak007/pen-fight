@@ -105,6 +105,22 @@ describe('level arena challenges', () => {
     }
   });
 
+  it('assigns a unique permanent visual identity to all 99 levels', () => {
+    const keys = new Set<string>();
+    const colors = new Set<string>();
+    for (let level = 1; level <= 99; level += 1) {
+      const visual = challengeForLevel(level).visual;
+      expect(visual.key).toBe(`level-${level.toString().padStart(2, '0')}`);
+      expect(keys.has(visual.key), `duplicate visual key at level ${level}`).toBe(false);
+      expect(colors.has(visual.accent), `duplicate accent at level ${level}`).toBe(false);
+      keys.add(visual.key);
+      colors.add(visual.accent);
+    }
+    expect(keys.size).toBe(99);
+    expect(colors.size).toBe(99);
+    expect(STANDARD_ARENA.visual.key).toBe('classic');
+  });
+
   it('keeps spawns and obstacles safely inside every tabletop', () => {
     for (let level = 1; level <= 99; level += 1) {
       const challenge = challengeForLevel(level);

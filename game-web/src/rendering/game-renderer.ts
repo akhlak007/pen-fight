@@ -222,6 +222,7 @@ export class GameRenderer {
     this.#arenaChallenge = mode === 'quick' && challenge ? challenge : STANDARD_ARENA;
     this.canvas.dataset.arenaLevel = mode === 'quick' ? `${this.#arenaChallenge.level}` : 'standard';
     this.canvas.dataset.arenaHazard = mode === 'quick' ? this.#arenaChallenge.hazard : 'standard';
+    this.canvas.dataset.arenaTheme = mode === 'quick' ? this.#arenaChallenge.visual.key : 'classic';
     this.#phoneFrameKey = '';
     this.#classroom.setMatchMode(mode, playerCount, playerNames, this.#arenaChallenge);
   }

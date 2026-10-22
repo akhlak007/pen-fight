@@ -147,6 +147,54 @@ function createLoosePaper(): THREE.Group {
   return group;
 }
 
+const DIGIT_SEGMENTS: Readonly<Record<number, readonly string[]>> = {
+  0: ['a', 'b', 'c', 'd', 'e', 'f'],
+  1: ['b', 'c'],
+  2: ['a', 'b', 'g', 'e', 'd'],
+  3: ['a', 'b', 'c', 'd', 'g'],
+  4: ['f', 'g', 'b', 'c'],
+  5: ['a', 'f', 'g', 'c', 'd'],
+  6: ['a', 'f', 'g', 'e', 'c', 'd'],
+  7: ['a', 'b', 'c'],
+  8: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+  9: ['a', 'b', 'c', 'd', 'f', 'g'],
+};
+
+function createLevelBadge(level: number, accent: string, theme: string): THREE.Group {
+  const badge = new THREE.Group();
+  badge.name = 'arena-level-badge';
+  badge.userData.level = level;
+  badge.userData.theme = theme;
+  const material = new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.84, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.02, 48), material);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.002;
+  badge.add(ring);
+  const segmentLayouts: Readonly<Record<string, readonly [number, number, number, number]>> = {
+    a: [0, -0.48, 0.4, 0.075],
+    b: [0.235, -0.245, 0.075, 0.38],
+    c: [0.235, 0.245, 0.075, 0.38],
+    d: [0, 0.48, 0.4, 0.075],
+    e: [-0.235, 0.245, 0.075, 0.38],
+    f: [-0.235, -0.245, 0.075, 0.38],
+    g: [0, 0, 0.4, 0.075],
+  };
+  const digits = [Math.floor(level / 10), level % 10];
+  digits.forEach((digit, digitIndex) => {
+    const digitX = digitIndex === 0 ? -0.34 : 0.34;
+    for (const segment of DIGIT_SEGMENTS[digit] ?? []) {
+      const layout = segmentLayouts[segment];
+      if (!layout) continue;
+      const [x, z, width, depth] = layout;
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.set(digitX + x, 0.006, z);
+      badge.add(bar);
+    }
+  });
+  return badge;
+}
+
 function createArenaTable(material: THREE.Material, challenge: ArenaChallenge = STANDARD_ARENA): THREE.Group {
   const group = new THREE.Group();
   const legacyStandard = challenge.hazard === 'standard';
@@ -163,6 +211,23 @@ function createArenaTable(material: THREE.Material, challenge: ArenaChallenge = 
   top.name = 'arena-table-top';
   top.position.y = 2.32;
   group.add(top);
+  if (!legacyStandard) {
+    const tintMaterial = new THREE.MeshBasicMaterial({
+      color: challenge.visual.tint,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+    });
+    const tint = new THREE.Mesh(new THREE.PlaneGeometry(topWidth - 0.25, topDepth - 0.25), tintMaterial);
+    tint.name = 'arena-level-tint';
+    tint.userData.theme = challenge.visual.key;
+    tint.rotation.x = -Math.PI / 2;
+    tint.position.y = 2.553;
+    group.add(tint);
+    const badge = createLevelBadge(challenge.level, challenge.visual.accent, challenge.visual.key);
+    badge.position.set(0, 2.568, 0);
+    group.add(badge);
+  }
   const apronMaterial = new THREE.MeshStandardMaterial({ color: '#4b2c18', roughness: 0.62, metalness: 0.03 });
   const frontApron = new THREE.Mesh(new RoundedBoxGeometry(apronWidth, 0.55, 0.2, 3, 0.05), apronMaterial);
   frontApron.position.set(0, 2.02, apronZ);
