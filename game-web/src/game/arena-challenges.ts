@@ -147,8 +147,8 @@ function baseChallenge(level: number, tier: number, name: string, hazard: ArenaH
     tremor: null,
     ai: {
       aimError: round(Math.max(0.035, 0.18 - level * 0.00135)),
-      minImpulse: round(Math.min(6.2, 4.1 + level * 0.018)),
-      maxImpulse: round(Math.min(14.2, 10.8 + level * 0.032)),
+      minImpulse: round(4.8 + level * 0.045),
+      maxImpulse: round(12 + level * 0.075),
     },
   };
 }
@@ -181,8 +181,8 @@ function generatedChallenge(level: number): ArenaChallenge {
       name: 'Chalk Gate',
       hazard: 'rulers',
       obstacles: [
-        { id: 'training-gate-left-4', kind: 'ruler', x: -1.55, z: CENTER_Z + 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: 0.12 },
-        { id: 'training-gate-right-4', kind: 'ruler', x: 1.55, z: CENTER_Z - 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: -0.12 },
+        { id: 'training-gate-left-4', kind: 'chalk', x: -1.55, z: CENTER_Z + 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: 0.12, movement: { axis: 'z', amplitude: 0.42, speed: 0.28, phase: 0 } },
+        { id: 'training-gate-right-4', kind: 'chalk', x: 1.55, z: CENTER_Z - 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: -0.12, movement: { axis: 'z', amplitude: 0.42, speed: 0.28, phase: Math.PI } },
       ],
     };
     if (level === 5) return {
@@ -291,7 +291,7 @@ export function validateChallenge(challenge: ArenaChallenge): { valid: true } | 
   if (!finite || challenge.halfWidth < 4.6 || challenge.halfWidth > BASE_WIDTH || challenge.halfDepth < 6.4 || challenge.halfDepth > BASE_DEPTH) return { valid: false, reason: 'unsupported table bounds' };
   if (![challenge.ai.aimError, challenge.ai.minImpulse, challenge.ai.maxImpulse].every(Number.isFinite)
     || challenge.ai.aimError < 0.02 || challenge.ai.aimError > 0.2
-    || challenge.ai.minImpulse < 3.5 || challenge.ai.maxImpulse > 15 || challenge.ai.minImpulse > challenge.ai.maxImpulse) return { valid: false, reason: 'unsafe AI settings' };
+    || challenge.ai.minImpulse < 3.5 || challenge.ai.maxImpulse >= 21 || challenge.ai.minImpulse > challenge.ai.maxImpulse) return { valid: false, reason: 'unsafe AI settings' };
   const ids = new Set<string>();
   const envelopes: ObstacleEnvelope[] = [];
   for (const spawn of challenge.spawns) {
@@ -341,6 +341,12 @@ export function challengeForLevel(input: number): ArenaChallenge {
   const level = Math.max(1, Math.min(99, Math.floor(Number.isFinite(input) ? input : 1)));
   const challenge = generatedChallenge(level);
   return validateChallenge(challenge).valid ? challenge : { ...STANDARD_ARENA, level, difficulty: level };
+}
+
+/** Produces the level-scaled AI impulse while keeping it below player maximum power. */
+export function aiImpulseForDistance(challenge: ArenaChallenge, distance: number): number {
+  const desired = Math.max(0, distance) * 1.2 + 1.2 + challenge.difficulty * 0.075;
+  return Math.max(challenge.ai.minImpulse, Math.min(challenge.ai.maxImpulse, desired));
 }
 
 export function safeAiShotAngle(

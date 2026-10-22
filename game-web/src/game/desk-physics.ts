@@ -78,6 +78,34 @@ interface BodyState {
 /** A conservative center zone where the pen is fully supported regardless of yaw. */
 type ArenaBounds = Pick<ArenaChallenge, 'halfWidth' | 'halfDepth' | 'centerZ'>;
 
+function yawFromQuaternion(rotation: QuaternionLike): number {
+  return Math.atan2(
+    2 * (rotation.w * rotation.y + rotation.x * rotation.z),
+    1 - 2 * (rotation.y * rotation.y + rotation.z * rotation.z),
+  );
+}
+
+export function confinedObstaclePosition(
+  obstacle: Pick<ArenaObstacle, 'halfWidth' | 'halfDepth'>,
+  bounds: ArenaBounds,
+  x: number,
+  z: number,
+  rotation: number,
+): { x: number; z: number } {
+  const cosine = Math.abs(Math.cos(rotation));
+  const sine = Math.abs(Math.sin(rotation));
+  const projectedHalfWidth = cosine * obstacle.halfWidth + sine * obstacle.halfDepth;
+  const projectedHalfDepth = sine * obstacle.halfWidth + cosine * obstacle.halfDepth;
+  const margin = 0.25;
+  const limitX = bounds.halfWidth - projectedHalfWidth - margin;
+  const minZ = bounds.centerZ - bounds.halfDepth + projectedHalfDepth + margin;
+  const maxZ = bounds.centerZ + bounds.halfDepth - projectedHalfDepth - margin;
+  return {
+    x: Math.max(-limitX, Math.min(limitX, x)),
+    z: Math.max(minZ, Math.min(maxZ, z)),
+  };
+}
+
 export function isSafelyInsideDesk(x: number, z: number, bounds: ArenaBounds = STANDARD_ARENA): boolean {
   const margin = PEN_HALF_LENGTH + PEN_RADIUS;
   return Math.abs(x) <= bounds.halfWidth - margin
@@ -162,7 +190,7 @@ export class DeskWorld {
   readonly #pens: PenBody[] = [];
   readonly #penByCollider = new Map<number, number>();
   readonly #arenaBodies: RAPIER.RigidBody[] = [];
-  readonly #movingObstacles: { body: RAPIER.RigidBody; obstacle: ArenaObstacle }[] = [];
+  readonly #reactiveChalk: { body: RAPIER.RigidBody; obstacle: ArenaObstacle }[] = [];
   readonly #obstacleBodies = new Map<string, RAPIER.RigidBody>();
   #challenge: ArenaChallenge = STANDARD_ARENA;
   #elapsed = 0;
@@ -210,8 +238,9 @@ export class DeskWorld {
   configure(requested: ArenaChallenge): void {
     const challenge = validateChallenge(requested).valid ? requested : STANDARD_ARENA;
     for (const body of this.#arenaBodies.splice(0)) this.#world.removeRigidBody(body);
-    this.#movingObstacles.length = 0;
+    this.#reactiveChalk.length = 0;
     this.#obstacleBodies.clear();
+    for (const slot of this.#pens) slot.body.setBodyType(this.#rapier.RigidBodyType.Dynamic, false);
     this.#challenge = challenge;
     this.#elapsed = 0;
     this.#tremorElapsed = -1;
@@ -237,8 +266,14 @@ export class DeskWorld {
 
     for (const obstacle of challenge.obstacles) {
       const rotation = { x: 0, y: Math.sin(obstacle.rotation / 2), z: 0, w: Math.cos(obstacle.rotation / 2) };
-      const descriptor = obstacle.movement
-        ? this.#rapier.RigidBodyDesc.kinematicPositionBased()
+      const descriptor = obstacle.kind === 'chalk'
+        ? this.#rapier.RigidBodyDesc.dynamic()
+          .enabledTranslations(true, false, true)
+          .enabledRotations(false, true, false)
+          .setLinearDamping(1.2)
+          .setAngularDamping(2.4)
+          .setCcdEnabled(true)
+          .setCanSleep(false)
         : this.#rapier.RigidBodyDesc.fixed();
       const body = this.#world.createRigidBody(descriptor
         .setTranslation(obstacle.x, DESK_TOP + obstacle.height / 2, obstacle.z)
@@ -246,18 +281,21 @@ export class DeskWorld {
       const collider = obstacle.kind === 'bumper'
         ? this.#rapier.ColliderDesc.cylinder(obstacle.height / 2, obstacle.halfWidth)
         : this.#rapier.ColliderDesc.cuboid(obstacle.halfWidth, obstacle.height / 2, obstacle.halfDepth);
-      this.#world.createCollider(collider.setFriction(0.48).setRestitution(0.18), body);
+      collider.setFriction(0.48).setRestitution(0.18);
+      if (obstacle.kind === 'chalk') collider.setMass(0.55);
+      this.#world.createCollider(collider, body);
       this.#arenaBodies.push(body);
       this.#obstacleBodies.set(obstacle.id, body);
-      if (obstacle.movement) this.#movingObstacles.push({ body, obstacle });
+      if (obstacle.kind === 'chalk') this.#reactiveChalk.push({ body, obstacle });
     }
   }
 
-  obstaclePose(id: string): { x: number; z: number } | null {
+  obstaclePose(id: string): { x: number; z: number; rotation: number } | null {
     const body = this.#obstacleBodies.get(id);
     if (!body) return null;
     const position = body.translation();
-    return { x: position.x, z: position.z };
+    const yaw = yawFromQuaternion(body.rotation());
+    return { x: position.x, z: position.z, rotation: yaw };
   }
 
   #syncPen(index: number, pen: THREE.Object3D): void {
@@ -306,6 +344,13 @@ export class DeskWorld {
     if (!slot || !slot.body.isEnabled()) return;
     const length = Math.hypot(dirX, dirZ);
     if (length < 1e-5 || power <= 0) return;
+    if (this.#reactiveChalk.length > 0) {
+      for (const pen of this.#pens) {
+        if (!pen.body.isEnabled()) continue;
+        pen.body.setBodyType(this.#rapier.RigidBodyType.Dynamic, pen === slot);
+        if (pen !== slot) pen.body.sleep();
+      }
+    }
     const forward = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion(
       slot.body.rotation().x,
       slot.body.rotation().y,
@@ -329,15 +374,23 @@ export class DeskWorld {
 
   #advanceHazards(): number {
     this.#elapsed += DESK_STEP;
-    for (const { body, obstacle } of this.#movingObstacles) {
+    for (const { body, obstacle } of this.#reactiveChalk) {
       const movement = obstacle.movement;
-      if (!movement) continue;
-      const offset = Math.sin(this.#elapsed * movement.speed + movement.phase) * movement.amplitude;
-      body.setNextKinematicTranslation({
-        x: obstacle.x + (movement.axis === 'x' ? offset : 0),
-        y: DESK_TOP + obstacle.height / 2,
-        z: obstacle.z + (movement.axis === 'z' ? offset : 0),
-      });
+      const phase = movement ? this.#elapsed * movement.speed + movement.phase : 0;
+      const offset = movement ? Math.sin(phase) * movement.amplitude : 0;
+      const patrolVelocity = movement ? Math.cos(phase) * movement.amplitude * movement.speed : 0;
+      const targetX = obstacle.x + (movement?.axis === 'x' ? offset : 0);
+      const targetZ = obstacle.z + (movement?.axis === 'z' ? offset : 0);
+      const position = body.translation();
+      const velocity = body.linvel();
+      const desiredX = (movement?.axis === 'x' ? patrolVelocity : 0) + (targetX - position.x) * 1.2;
+      const desiredZ = (movement?.axis === 'z' ? patrolVelocity : 0) + (targetZ - position.z) * 1.2;
+      body.setLinvel({
+        x: velocity.x + (desiredX - velocity.x) * 0.012,
+        y: 0,
+        z: velocity.z + (desiredZ - velocity.z) * 0.012,
+      }, true);
+
     }
     const tremor = this.#challenge.tremor;
     if (!tremor || this.#tremorElapsed < 0) return 0;
@@ -369,6 +422,18 @@ export class DeskWorld {
         }
       }
       this.#world.step(this.#queue);
+      for (const { body, obstacle } of this.#reactiveChalk) {
+        const position = body.translation();
+        const safe = confinedObstaclePosition(obstacle, this.#challenge, position.x, position.z, yawFromQuaternion(body.rotation()));
+        if (safe.x === position.x && safe.z === position.z) continue;
+        const velocity = body.linvel();
+        body.setTranslation({ x: safe.x, y: DESK_TOP + obstacle.height / 2, z: safe.z }, true);
+        body.setLinvel({
+          x: safe.x === position.x ? velocity.x : -velocity.x * 0.2,
+          y: 0,
+          z: safe.z === position.z ? velocity.z : -velocity.z * 0.2,
+        }, true);
+      }
       for (const slot of this.#pens) {
         if (!slot.body.isEnabled()) continue;
         const position = slot.body.translation();
@@ -473,6 +538,7 @@ export class DeskWorld {
       slot.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       slot.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       slot.body.sleep();
+      if (this.#reactiveChalk.length > 0) slot.body.setBodyType(this.#rapier.RigidBodyType.Fixed, false);
       const pose = poseFromBody(slot.body);
       slot.prev = samePose(pose);
       slot.curr = pose;

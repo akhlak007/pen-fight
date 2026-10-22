@@ -19,7 +19,7 @@ import {
 } from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
 import { deskById, penById } from '../profile/profile-catalog';
-import { STANDARD_ARENA, safeAiShotAngle, validateChallenge, type ArenaChallenge } from '../game/arena-challenges';
+import { STANDARD_ARENA, aiImpulseForDistance, safeAiShotAngle, validateChallenge, type ArenaChallenge } from '../game/arena-challenges';
 
 const woodGeometry = new RoundedBoxGeometry(5.8, 0.34, 2.2, 3, 0.1);
 const benchGeometry = new RoundedBoxGeometry(5.5, 0.3, 0.78, 3, 0.08);
@@ -433,6 +433,7 @@ export function createClassroom(
       replaceArenaVisual(activeChallenge);
     }
     desk.sync(pens, activePlayerCount);
+    desk.sleepPens();
   };
   const ready = startPhysics().then((world) => {
     pendingDesk = world;
@@ -756,6 +757,7 @@ export function createClassroom(
     for (const s of sparks) { s.active = false; s.mesh.visible = false; }
     activatePendingDesk();
     desk?.sync(pens, activePlayerCount);
+    desk?.sleepPens();
   }
 
   function launchAi(time: number): void {
@@ -765,9 +767,7 @@ export function createClassroom(
     const safeAngle = safeAiShotAngle(activeChallenge, red.position, blue.position, error);
     const angle = safeAngle ?? Math.atan2(-(activeChallenge.centerZ - red.position.z), -red.position.x);
     const distance = Math.hypot(dx, dz);
-    const strength = safeAngle === null
-      ? activeChallenge.ai.minImpulse
-      : THREE.MathUtils.clamp(distance * 1.15 + 1.2, activeChallenge.ai.minImpulse, activeChallenge.ai.maxImpulse);
+    const strength = aiImpulseForDistance(activeChallenge, distance);
     red.rotation.y = angle;
     if (desk) {
       desk.syncPen(1, red);
@@ -903,35 +903,38 @@ export function createClassroom(
       let physicsSettled = false;
       const shotActive = turns.phase === 'playerMoving' || turns.phase === 'aiMoving';
       if (simulated && desk) {
+        const step = desk.step(delta);
+        for (const obstacle of activeChallenge.obstacles) {
+          if (obstacle.kind !== 'chalk') continue;
+          const pose = desk.obstaclePose(obstacle.id);
+          const mesh = arena.getObjectByName(`arena-obstacle:${obstacle.id}`);
+          if (pose && mesh) {
+            mesh.position.set(pose.x, mesh.position.y, pose.z - activeChallenge.centerZ);
+            mesh.rotation.y = pose.rotation;
+          }
+        }
         if (shotActive) {
-          const step = desk.step(delta);
           physicsMotion = step.totalMotion;
           physicsSettled = step.settled;
           desk.applyPoses(pens, activePlayerCount);
           if (step.tremorStrength > 0) hitListener(1.8 + step.tremorStrength * 8);
-          for (const obstacle of activeChallenge.obstacles) {
-            if (!obstacle.movement) continue;
-            const pose = desk.obstaclePose(obstacle.id);
-            const mesh = arena.getObjectByName(`arena-obstacle:${obstacle.id}`);
-            if (pose && mesh) mesh.position.set(pose.x, mesh.position.y, pose.z - activeChallenge.centerZ);
+          for (const hit of step.hits) {
+            const normal = new THREE.Vector2(1, 0);
+            shockwave.position.set(hit.x, 2.585, hit.z);
+            shockwave.scale.setScalar(0.4);
+            shockwave.visible = true;
+            shockwaveTimer = 0.35;
+            (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
+            impactStar.position.set(hit.x, 2.61, hit.z);
+            impactStar.rotation.z = Math.random() * Math.PI;
+            impactStar.scale.setScalar(1.5);
+            impactStar.visible = true;
+            starTimer = 0.22;
+            (impactStar.material as THREE.MeshBasicMaterial).opacity = 1;
+            spawnHitSparks(hit.x, hit.z, normal, hit.strength);
+            playPenClackSound(hit.strength);
+            hitListener(hit.strength);
           }
-        for (const hit of step.hits) {
-          const normal = new THREE.Vector2(1, 0);
-          shockwave.position.set(hit.x, 2.585, hit.z);
-          shockwave.scale.setScalar(0.4);
-          shockwave.visible = true;
-          shockwaveTimer = 0.35;
-          (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
-          impactStar.position.set(hit.x, 2.61, hit.z);
-          impactStar.rotation.z = Math.random() * Math.PI;
-          impactStar.scale.setScalar(1.5);
-          impactStar.visible = true;
-          starTimer = 0.22;
-          (impactStar.material as THREE.MeshBasicMaterial).opacity = 1;
-          spawnHitSparks(hit.x, hit.z, normal, hit.strength);
-          playPenClackSound(hit.strength);
-          hitListener(hit.strength);
-        }
         } else {
           physicsSettled = true;
           physicsMotion = 0;
@@ -1174,6 +1177,8 @@ export function createClassroom(
       const previousTurnPhase = turns.phase;
       const action = turns.tick(delta, totalSpeed);
       if (previousTurnPhase === 'playerMoving' && turns.phase === 'aiWaiting') {
+        desk?.sleepPens();
+        desk?.applyPoses(pens, activePlayerCount);
         turnListener(1);
         actionListener('aiWaiting');
       }

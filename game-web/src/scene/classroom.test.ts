@@ -169,6 +169,44 @@ describe('classroom aiming preview', () => {
     expect(scene.group.getObjectByName('arena-obstacle:training-gate-right-4')).toBeDefined();
   });
 
+  it('keeps patrolling chalk moving while the player is aiming without moving the pens', () => {
+    const challenge = challengeForLevel(7);
+    const chalk = challenge.obstacles[0];
+    if (!chalk) throw new Error('Level 7 chalk was not configured.');
+    scene.setMatchMode('quick', 2, undefined, challenge);
+    const mesh = scene.group.getObjectByName(`arena-obstacle:${chalk.id}`);
+    if (!mesh) throw new Error('Level 7 chalk mesh was not rendered.');
+    const chalkStart = mesh.position.clone();
+    const penStarts = scene.heroPens.children.slice(0, 2).map((pen) => pen.position.clone());
+
+    for (let frame = 0; frame < 120; frame += 1) scene.update(frame * (1000 / 60), 1 / 60, true);
+
+    expect(mesh.position.distanceTo(chalkStart)).toBeGreaterThan(0.05);
+    scene.heroPens.children.slice(0, 2).forEach((pen, index) => {
+      expect(pen.position.distanceTo(penStarts[index]!)).toBeLessThan(1e-6);
+    });
+  });
+
+  it('freezes both pens before the chalk keeps patrolling during the AI delay', async () => {
+    const world = await startDeskWorld();
+    const sleepPens = vi.spyOn(world, 'sleepPens');
+    scene = createClassroom(() => Promise.resolve(world));
+    await scene.ready;
+    scene.setMatchMode('quick', 2, undefined, challengeForLevel(7));
+    const sleepsBeforeShot = sleepPens.mock.calls.length;
+    const actions: string[] = [];
+    scene.setActionListener((action) => actions.push(action));
+    scene.aim(0, 1.2);
+    scene.flick();
+
+    for (let frame = 0; frame < 900 && !actions.includes('aiWaiting'); frame += 1) {
+      scene.update(frame * (1000 / 60), 1 / 60, true);
+    }
+
+    expect(actions).toContain('aiWaiting');
+    expect(sleepPens.mock.calls.length).toBeGreaterThan(sleepsBeforeShot);
+  });
+
   it('defers a late Rapier handoff until the fallback shot finishes', async () => {
     const world = await startDeskWorld();
     let resolveWorld!: (value: DeskWorld) => void;

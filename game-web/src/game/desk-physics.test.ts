@@ -13,6 +13,7 @@ import { STANDARD_ARENA, challengeForLevel } from './arena-challenges';
 import {
   DESK_STEP,
   DESK_TOP,
+  confinedObstaclePosition,
   impulseMagnitude,
   powerForImpulse,
   interiorRecoveryPosition,
@@ -169,6 +170,81 @@ describe('desk physics shot', () => {
     expect(moved!.x).not.toBeCloseTo(start!.x, 2);
     world.configure(STANDARD_ARENA);
     expect(world.obstaclePose(obstacle.id)).toBeNull();
+  });
+
+  it('lets a pen push chalk away before its patrol gradually recovers', async () => {
+    const challenge = challengeForLevel(7);
+    const chalk = challenge.obstacles[0];
+    if (!chalk?.movement || chalk.kind !== 'chalk') throw new Error('Level 7 must contain patrolling chalk.');
+    const baseline = await startDeskWorld();
+    const impacted = await startDeskWorld();
+    baseline.configure(challenge);
+    impacted.configure(challenge);
+    baseline.sync([], 0);
+    const pen = new THREE.Group();
+    pen.position.set(chalk.x - 3, DESK_TOP + PEN_RADIUS, chalk.z + 0.12);
+    pen.rotation.y = 0;
+    impacted.sync([pen], 1);
+    impacted.strike(0, 0, 1, 0, 0.72);
+
+    for (let index = 0; index < 90; index += 1) {
+      baseline.step(DESK_STEP);
+      impacted.step(DESK_STEP);
+    }
+    const baselineAfterHit = baseline.obstaclePose(chalk.id);
+    const impactedAfterHit = impacted.obstaclePose(chalk.id);
+    if (!baselineAfterHit || !impactedAfterHit) throw new Error('Chalk pose was unavailable.');
+    const hitOffset = Math.hypot(impactedAfterHit.x - baselineAfterHit.x, impactedAfterHit.z - baselineAfterHit.z);
+    expect(hitOffset).toBeGreaterThan(0.12);
+    expect(Math.abs(impactedAfterHit.rotation - baselineAfterHit.rotation)).toBeGreaterThan(0.02);
+
+    for (let index = 0; index < 720; index += 1) {
+      baseline.step(DESK_STEP);
+      impacted.step(DESK_STEP);
+    }
+    const baselineRecovered = baseline.obstaclePose(chalk.id);
+    const impactedRecovered = impacted.obstaclePose(chalk.id);
+    if (!baselineRecovered || !impactedRecovered) throw new Error('Recovered chalk pose was unavailable.');
+    const recoveredOffset = Math.hypot(impactedRecovered.x - baselineRecovered.x, impactedRecovered.z - baselineRecovered.z);
+    expect(recoveredOffset).toBeLessThan(hitOffset * 0.5);
+    expect(Math.abs(impactedRecovered.x)).toBeLessThan(challenge.halfWidth - chalk.halfWidth);
+    expect(Math.abs(impactedRecovered.z - challenge.centerZ)).toBeLessThan(challenge.halfDepth - chalk.halfDepth);
+  });
+
+  it('uses yaw-projected chalk dimensions when containing it on the table', () => {
+    const challenge = challengeForLevel(69);
+    const chalk = challenge.obstacles[0];
+    if (!chalk) throw new Error('Level 69 chalk was not configured.');
+    const contained = confinedObstaclePosition(
+      chalk,
+      challenge,
+      0,
+      challenge.centerZ + challenge.halfDepth,
+      Math.PI / 2,
+    );
+    const projectedHalfDepth = chalk.halfWidth;
+
+    expect(contained.z).toBeCloseTo(
+      challenge.centerZ + challenge.halfDepth - projectedHalfDepth - 0.25,
+      5,
+    );
+  });
+
+  it('restores dynamic pens when leaving a chalk arena', async () => {
+    const world = await startDeskWorld();
+    const pen = new THREE.Group();
+    pen.position.set(0, DESK_TOP + PEN_RADIUS, STANDARD_ARENA.centerZ);
+    world.configure(challengeForLevel(7));
+    world.sync([pen], 1);
+    world.sleepPens();
+    world.configure(STANDARD_ARENA);
+    world.sync([pen], 1);
+    world.strike(0, 0, 1, 0, 0.5);
+    world.step(DESK_STEP);
+    const velocities = [new THREE.Vector2()];
+    world.copyMotion(velocities, [0]);
+
+    expect(velocities[0]!.length()).toBeGreaterThan(1);
   });
 
   it('collides with a fixed bumper without dropping through the tabletop', async () => {

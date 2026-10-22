@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   STANDARD_ARENA,
+  aiImpulseForDistance,
   challengeForLevel,
   safeAiShotAngle,
   validateChallenge,
@@ -75,6 +76,21 @@ describe('level arena challenges', () => {
         || challenge.tremor !== null;
       expect(hasVisibleMechanic, `level ${level} should not look like level 1`).toBe(true);
     }
+    const levelFourChalk = challengeForLevel(4).obstacles;
+    expect(levelFourChalk).toHaveLength(2);
+    expect(levelFourChalk.every((obstacle) => obstacle.kind === 'chalk' && obstacle.movement)).toBe(true);
+  });
+
+  it('makes effective AI hit power rise at every level', () => {
+    let previous = 0;
+    for (let level = 1; level <= 99; level += 1) {
+      const impulse = aiImpulseForDistance(challengeForLevel(level), 9);
+      expect(impulse, `level ${level} AI impulse`).toBeGreaterThan(previous);
+      previous = impulse;
+    }
+    expect(aiImpulseForDistance(challengeForLevel(1), 9)).toBeGreaterThanOrEqual(12);
+    expect(aiImpulseForDistance(challengeForLevel(99), 9)).toBeGreaterThanOrEqual(18.5);
+    expect(aiImpulseForDistance(challengeForLevel(99), 9)).toBeLessThan(21);
   });
 
   it('keeps difficulty monotonic and makes every level distinct', () => {
@@ -169,6 +185,7 @@ describe('level arena challenges', () => {
     const trappedOrigin = { x: -4, z: 5 };
     const trappedTarget = { x: 4, z: -5 };
     const fallback = safeAiShotAngle(bumper, trappedOrigin, trappedTarget, 0);
-    expect(fallback === null || trajectoryIsClear(bumper, trappedOrigin, trappedTarget, fallback)).toBe(true);
+    expect(fallback).toBeNull();
+    expect(aiImpulseForDistance(bumper, Math.hypot(8, 10))).toBeGreaterThan(12);
   });
 });
