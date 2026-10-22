@@ -36,6 +36,17 @@ test('uses the profile level for a locked Quick Match challenge', async ({ page 
   await expect(canvas).toHaveAttribute('data-arena-level', '24');
 });
 
+test('shows the visible chalk-gate challenge at level 4', async ({ page }) => {
+  await setXp(page, 360);
+  await page.getByRole('button', { name: 'INSTANT' }).click();
+  await page.getByRole('button', { name: /Quick Match/ }).click();
+
+  await expect(page.getByRole('status').filter({ hasText: 'LEVEL 4' })).toContainText('Chalk Gate');
+  const canvas = page.getByLabel(/3D classroom arena/);
+  await expect(canvas).toHaveAttribute('data-arena-level', '4');
+  await expect(canvas).toHaveAttribute('data-arena-hazard', 'rulers');
+});
+
 test('starts level 1 on the training desk and keeps the locked arena after rerenders', async ({ page }) => {
   await page.getByRole('button', { name: 'INSTANT' }).click();
   await page.getByRole('button', { name: /Quick Match/ }).click();

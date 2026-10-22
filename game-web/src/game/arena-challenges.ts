@@ -167,7 +167,63 @@ function generatedChallenge(level: number): ArenaChallenge {
   const hazards: readonly ArenaHazard[] = ['training', 'narrow', 'bumper', 'rulers', 'slick', 'tremor', 'moving-chalk', 'short', 'mixed', 'champion'];
   const base = baseChallenge(level, tier, names[tier - 1]!, hazards[tier - 1]!);
 
-  if (tier === 1) return base;
+  if (tier === 1) {
+    if (level === 1) return base;
+    if (level === 2) return { ...base, name: 'Tight Lines', hazard: 'narrow', halfWidth: 5.4 };
+    if (level === 3) return {
+      ...base,
+      name: 'First Bumper',
+      hazard: 'bumper',
+      obstacles: [{ id: 'training-bumper-3', kind: 'bumper', x: 0, z: CENTER_Z, halfWidth: 0.34, halfDepth: 0.34, height: 0.26, rotation: 0 }],
+    };
+    if (level === 4) return {
+      ...base,
+      name: 'Chalk Gate',
+      hazard: 'rulers',
+      obstacles: [
+        { id: 'training-gate-left-4', kind: 'ruler', x: -1.55, z: CENTER_Z + 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: 0.12 },
+        { id: 'training-gate-right-4', kind: 'ruler', x: 1.55, z: CENTER_Z - 0.55, halfWidth: 0.12, halfDepth: 0.85, height: 0.2, rotation: -0.12 },
+      ],
+    };
+    if (level === 5) return {
+      ...base,
+      name: 'Slick Lesson',
+      hazard: 'slick',
+      frictionZones: [{ id: 'training-slick-5', x: 0, z: CENTER_Z, halfWidth: 1.1, halfDepth: 1.15, friction: 0.14 }],
+    };
+    if (level === 6) return {
+      ...base,
+      name: 'Wobbly Desk',
+      hazard: 'tremor',
+      tremor: { delay: 0.3, interval: 0.28, strength: 0.06, pulses: 1 },
+    };
+    if (level === 7) return {
+      ...base,
+      name: 'Moving Chalk',
+      hazard: 'moving-chalk',
+      obstacles: [{
+        id: 'training-chalk-7',
+        kind: 'chalk',
+        x: 0,
+        z: CENTER_Z,
+        halfWidth: 0.42,
+        halfDepth: 0.2,
+        height: 0.24,
+        rotation: 0,
+        movement: { axis: 'x', amplitude: 1.1, speed: 0.35, phase: 0 },
+      }],
+    };
+    if (level === 8) return { ...base, name: 'Short Practice', hazard: 'short', halfDepth: 6.85 };
+    return {
+      ...base,
+      name: 'Graduation Trial',
+      hazard: 'mixed',
+      halfWidth: 5.25,
+      halfDepth: 6.9,
+      obstacles: [{ id: 'training-final-bumper-9', kind: 'bumper', x: 0.7, z: CENTER_Z, halfWidth: 0.36, halfDepth: 0.36, height: 0.27, rotation: 0 }],
+      frictionZones: [{ id: 'training-final-slick-9', x: -1.55, z: CENTER_Z - 0.8, halfWidth: 0.75, halfDepth: 0.85, friction: 0.13 }],
+    };
+  }
   if (tier === 2) return { ...base, halfWidth: round(BASE_WIDTH - 0.35 - progress * 0.55) };
   if (tier === 3) return {
     ...base,

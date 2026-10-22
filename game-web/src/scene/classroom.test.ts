@@ -160,6 +160,15 @@ describe('classroom aiming preview', () => {
     expect(rightZone?.position.z).toBeCloseTo(-6, 3);
   });
 
+  it('renders both visible chalk gates for level 4', () => {
+    const challenge = challengeForLevel(4);
+    scene.setMatchMode('quick', 2, undefined, challenge);
+
+    expect(challenge.name).toBe('Chalk Gate');
+    expect(scene.group.getObjectByName('arena-obstacle:training-gate-left-4')).toBeDefined();
+    expect(scene.group.getObjectByName('arena-obstacle:training-gate-right-4')).toBeDefined();
+  });
+
   it('defers a late Rapier handoff until the fallback shot finishes', async () => {
     const world = await startDeskWorld();
     let resolveWorld!: (value: DeskWorld) => void;

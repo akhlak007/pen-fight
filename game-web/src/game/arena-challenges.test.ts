@@ -49,6 +49,34 @@ describe('level arena challenges', () => {
     expect(challengeForLevel(90)).toMatchObject({ tier: 10, hazard: 'champion' });
   });
 
+  it('gives every training level a clear visible gameplay change', () => {
+    const expectedHazards = ['training', 'narrow', 'bumper', 'rulers', 'slick', 'tremor', 'moving-chalk', 'short', 'mixed'];
+    const expectedNames = [
+      'Training Desk',
+      'Tight Lines',
+      'First Bumper',
+      'Chalk Gate',
+      'Slick Lesson',
+      'Wobbly Desk',
+      'Moving Chalk',
+      'Short Practice',
+      'Graduation Trial',
+    ];
+
+    for (let level = 1; level <= 9; level += 1) {
+      const challenge = challengeForLevel(level);
+      expect(challenge.hazard).toBe(expectedHazards[level - 1]);
+      expect(challenge.name).toBe(expectedNames[level - 1]);
+      if (level === 1) continue;
+      const hasVisibleMechanic = challenge.halfWidth !== STANDARD_ARENA.halfWidth
+        || challenge.halfDepth !== STANDARD_ARENA.halfDepth
+        || challenge.obstacles.length > 0
+        || challenge.frictionZones.length > 0
+        || challenge.tremor !== null;
+      expect(hasVisibleMechanic, `level ${level} should not look like level 1`).toBe(true);
+    }
+  });
+
   it('keeps difficulty monotonic and makes every level distinct', () => {
     const challenges = Array.from({ length: 99 }, (_, index) => challengeForLevel(index + 1));
     const fingerprints = challenges.map((challenge) => JSON.stringify(
