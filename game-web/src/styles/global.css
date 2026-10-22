@@ -1118,6 +1118,33 @@ select {
 .ui-layer .match-hud > *,
 .ui-layer .match-top-bar > * { pointer-events: auto; }
 
+.level-challenge-banner {
+  position: fixed;
+  z-index: 14;
+  top: max(82px, calc(var(--safe-top) + 66px));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  color: #2c2117;
+  border: 2px solid rgba(61, 41, 25, .72);
+  border-radius: 7px;
+  background: #fff4c9;
+  box-shadow: 3px 4px 0 rgba(37, 23, 13, .32);
+  transform: translateX(-50%) rotate(-.5deg);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: challenge-arrive .3s ease-out;
+}
+.level-challenge-banner[hidden] { display: none; }
+.level-challenge-banner small { color: #a94425; font: 900 10px ui-monospace, monospace; letter-spacing: .1em; }
+.level-challenge-banner strong { font-family: 'Patrick Hand', cursive, sans-serif; font-size: 18px; }
+@keyframes challenge-arrive {
+  from { opacity: 0; transform: translate(-50%, -8px) rotate(-.5deg) scale(.96); }
+  to { opacity: 1; transform: translateX(-50%) rotate(-.5deg) scale(1); }
+}
+
 .match-hud,
 .match-top-bar {
   position: absolute;

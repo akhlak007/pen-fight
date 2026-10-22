@@ -21,6 +21,9 @@ test('creates an invite and joins from a second device context', async ({ browse
   await expect(host.locator('.scoreboard')).toContainText('Priya');
   await expect(guest.locator('.scoreboard')).toContainText('Akhlaq');
   await expect(host.locator('.match-mode')).toContainText(room!);
+  await expect(host.locator('canvas')).toHaveAttribute('data-arena-level', 'standard');
+  await expect(host.locator('canvas')).toHaveAttribute('data-arena-hazard', 'standard');
+  await expect(guest.locator('canvas')).toHaveAttribute('data-arena-level', 'standard');
   await host.locator('canvas').focus();
   await host.locator('canvas').press('ArrowUp');
   await host.locator('canvas').press('Space');

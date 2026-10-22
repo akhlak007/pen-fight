@@ -83,6 +83,9 @@ export class UiRoot {
   #friendSetupMode: 'local' | 'online' = 'local';
   #account: AccountState = { status: 'checking' };
   #leaderboard: { loading: boolean; page?: LeaderboardPage; error?: string } = { loading: false };
+  #challengeBanner: { level: number; name: string } | null = null;
+  #challengeVisible = false;
+  #challengeTimer: ReturnType<typeof setTimeout> | null = null;
   #state!: AppState;
 
   constructor(store: AppStore, private readonly actions: UiActions) {
@@ -102,6 +105,18 @@ export class UiRoot {
   setLeaderboardState(state: { loading: boolean; page?: LeaderboardPage; error?: string }): void {
     this.#leaderboard = state;
     if (this.#state.phase === 'leaderboard') this.render(this.#state);
+  }
+
+  setChallengeBanner(challenge: { level: number; name: string } | null): void {
+    this.#challengeBanner = challenge;
+    this.#challengeVisible = Boolean(challenge);
+    if (this.#challengeTimer) clearTimeout(this.#challengeTimer);
+    this.#challengeTimer = challenge ? setTimeout(() => {
+      this.#challengeVisible = false;
+      this.#layer.querySelector<HTMLElement>('.level-challenge-banner')?.setAttribute('hidden', '');
+      this.#challengeTimer = null;
+    }, 4200) : null;
+    if (this.#state.phase === 'match' || this.#state.phase === 'paused') this.render(this.#state);
   }
 
   render(state: AppState): void {
@@ -969,6 +984,10 @@ export class UiRoot {
           </div>
         </header>
 
+        <section class="level-challenge-banner" role="status" aria-live="polite" ${this.#challengeBanner && this.#challengeVisible ? `data-level="${this.#challengeBanner.level}"` : 'hidden'}>
+          ${this.#challengeBanner ? `<small>LEVEL ${this.#challengeBanner.level}</small><strong>${escapeText(this.#challengeBanner.name)}</strong>` : ''}
+        </section>
+
         <!-- Bottom Left Corner Watermark -->
         <div class="match-corner-badge" aria-label="Pen Fight Pilot V5">
           <span class="pilot-box"><span class="pilot-pen-icon" aria-hidden="true"></span>PEN FIGHT</span>
@@ -1155,5 +1174,9 @@ export class UiRoot {
     }, 280);
   }
 
-  dispose(): void { this.#unsubscribe(); this.#layer.remove(); }
+  dispose(): void {
+    if (this.#challengeTimer) clearTimeout(this.#challengeTimer);
+    this.#unsubscribe();
+    this.#layer.remove();
+  }
 }

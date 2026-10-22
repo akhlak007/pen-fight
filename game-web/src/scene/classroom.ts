@@ -19,6 +19,7 @@ import {
 } from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
 import { deskById, penById } from '../profile/profile-catalog';
+import { STANDARD_ARENA, safeAiShotAngle, validateChallenge, type ArenaChallenge } from '../game/arena-challenges';
 
 const woodGeometry = new RoundedBoxGeometry(5.8, 0.34, 2.2, 3, 0.1);
 const benchGeometry = new RoundedBoxGeometry(5.5, 0.3, 0.78, 3, 0.08);
@@ -146,31 +147,42 @@ function createLoosePaper(): THREE.Group {
   return group;
 }
 
-function createArenaTable(material: THREE.Material): THREE.Group {
+function createArenaTable(material: THREE.Material, challenge: ArenaChallenge = STANDARD_ARENA): THREE.Group {
   const group = new THREE.Group();
-  const top = new THREE.Mesh(new RoundedBoxGeometry(11.8, 0.46, 14.8, 5, 0.16), material);
+  const legacyStandard = challenge.hazard === 'standard';
+  const topWidth = legacyStandard ? 11.8 : challenge.halfWidth * 2;
+  const topDepth = legacyStandard ? 14.8 : challenge.halfDepth * 2;
+  const apronWidth = legacyStandard ? 11.2 : challenge.halfWidth * 2 - 0.6;
+  const apronZ = legacyStandard ? 7.15 : challenge.halfDepth - 0.3;
+  const sideDepth = legacyStandard ? 14.1 : challenge.halfDepth * 2 - 0.8;
+  const sideX = legacyStandard ? 5.65 : challenge.halfWidth - 0.1;
+  const legX = legacyStandard ? 4.85 : challenge.halfWidth - 0.9;
+  const legZ = legacyStandard ? 5.9 : challenge.halfDepth - 1.55;
+  const crossbarWidth = legacyStandard ? 9.8 : challenge.halfWidth * 2 - 1.7;
+  const top = new THREE.Mesh(new RoundedBoxGeometry(topWidth, 0.46, topDepth, 5, 0.16), material);
+  top.name = 'arena-table-top';
   top.position.y = 2.32;
   group.add(top);
   const apronMaterial = new THREE.MeshStandardMaterial({ color: '#4b2c18', roughness: 0.62, metalness: 0.03 });
-  const frontApron = new THREE.Mesh(new RoundedBoxGeometry(11.2, 0.55, 0.2, 3, 0.05), apronMaterial);
-  frontApron.position.set(0, 2.02, 7.15);
+  const frontApron = new THREE.Mesh(new RoundedBoxGeometry(apronWidth, 0.55, 0.2, 3, 0.05), apronMaterial);
+  frontApron.position.set(0, 2.02, apronZ);
   const backApron = frontApron.clone();
-  backApron.position.z = -7.15;
-  const sideApron = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, 14.1, 3, 0.05), apronMaterial);
-  sideApron.position.set(5.65, 2.02, 0);
+  backApron.position.z = -apronZ;
+  const sideApron = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, sideDepth, 3, 0.05), apronMaterial);
+  sideApron.position.set(sideX, 2.02, 0);
   const otherSideApron = sideApron.clone();
-  otherSideApron.position.x = -5.65;
+  otherSideApron.position.x = -sideX;
   group.add(frontApron, backApron, sideApron, otherSideApron);
 
   const metal = new THREE.MeshStandardMaterial({ color: '#17191a', metalness: 0.8, roughness: 0.27 });
-  for (const x of [-4.85, 4.85]) {
-    for (const z of [-5.9, 5.9]) {
+  for (const x of [-legX, legX]) {
+    for (const z of [-legZ, legZ]) {
       const leg = new THREE.Mesh(new RoundedBoxGeometry(0.27, 2.2, 0.27, 2, 0.05), metal);
       leg.position.set(x, 1.08, z);
       group.add(leg);
     }
   }
-  const crossbar = new THREE.Mesh(new RoundedBoxGeometry(9.8, 0.16, 0.16, 2, 0.04), metal);
+  const crossbar = new THREE.Mesh(new RoundedBoxGeometry(crossbarWidth, 0.16, 0.16, 2, 0.04), metal);
   crossbar.position.set(0, 0.72, 0);
   group.add(crossbar);
 
@@ -182,18 +194,42 @@ function createArenaTable(material: THREE.Material): THREE.Group {
     strip.position.set(x, 2.558, z);
     group.add(strip);
   };
-  addStrip(0.055, 13.8, 0, 0, accent);
-  addStrip(11.1, 0.045, 0, 0, marking);
-  addStrip(11.1, 0.045, 0, -6.85, marking);
-  addStrip(11.1, 0.045, 0, 6.85, marking);
-  addStrip(0.045, 13.75, -5.55, 0, marking);
-  addStrip(0.045, 13.75, 5.55, 0, marking);
+  addStrip(0.055, challenge.halfDepth * 2 - 1.1, 0, 0, accent);
+  addStrip(challenge.halfWidth * 2 - 0.4, 0.045, 0, 0, marking);
+  addStrip(challenge.halfWidth * 2 - 0.4, 0.045, 0, -(challenge.halfDepth - 0.6), marking);
+  addStrip(challenge.halfWidth * 2 - 0.4, 0.045, 0, challenge.halfDepth - 0.6, marking);
+  addStrip(0.045, challenge.halfDepth * 2 - 1.15, -(challenge.halfWidth - 0.2), 0, marking);
+  addStrip(0.045, challenge.halfDepth * 2 - 1.15, challenge.halfWidth - 0.2, 0, marking);
 
-  for (const [x, z] of [[-4.6, 6.0], [4.6, -6.0]] as const) {
+  const startZones = challenge.hazard === 'standard'
+    ? [{ x: -4.6, z: 6 }, { x: 4.6, z: -6 }]
+    : challenge.spawns.map((spawn) => ({ x: spawn.x, z: spawn.z - challenge.centerZ }));
+  startZones.forEach((spawn, index) => {
     const zone = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.53, 48), accent);
+    zone.name = `arena-start-zone:${index}`;
     zone.rotation.x = -Math.PI / 2;
-    zone.position.set(x, 2.562, z);
+    zone.position.set(spawn.x, 2.562, spawn.z);
     group.add(zone);
+  });
+  const slickMaterial = new THREE.MeshStandardMaterial({ color: '#69d3e5', roughness: 0.15, transparent: true, opacity: 0.34 });
+  for (const zone of challenge.frictionZones) {
+    const patch = new THREE.Mesh(new RoundedBoxGeometry(zone.halfWidth * 2, 0.025, zone.halfDepth * 2, 4, 0.18), slickMaterial);
+    patch.name = `arena-friction:${zone.id}`;
+    patch.position.set(zone.x, DESK_TOP + 0.014, zone.z - challenge.centerZ);
+    group.add(patch);
+  }
+  for (const obstacle of challenge.obstacles) {
+    const obstacleMaterial = new THREE.MeshStandardMaterial({
+      color: obstacle.kind === 'ruler' ? '#e1b735' : obstacle.kind === 'chalk' ? '#e8e0cf' : '#b64b32',
+      roughness: obstacle.kind === 'chalk' ? 0.9 : 0.58,
+    });
+    const mesh = obstacle.kind === 'bumper'
+      ? new THREE.Mesh(new THREE.CylinderGeometry(obstacle.halfWidth, obstacle.halfWidth, obstacle.height, 24), obstacleMaterial)
+      : new THREE.Mesh(new RoundedBoxGeometry(obstacle.halfWidth * 2, obstacle.height, obstacle.halfDepth * 2, 3, Math.min(0.08, obstacle.halfDepth * 0.25)), obstacleMaterial);
+    mesh.name = `arena-obstacle:${obstacle.id}`;
+    mesh.position.set(obstacle.x, DESK_TOP + obstacle.height / 2, obstacle.z - challenge.centerZ);
+    mesh.rotation.y = obstacle.rotation;
+    group.add(mesh);
   }
   enableShadows(group);
   return group;
@@ -217,7 +253,7 @@ export interface ClassroomScene {
   setRoundListener(listener: (message: string | null) => void): void;
   setActionListener(listener: (action: ArenaAction) => void): void;
   setHitListener(listener: (intensity: number) => void): void;
-  setMatchMode(mode: MatchMode, playerCount?: number, playerNames?: readonly string[]): void;
+  setMatchMode(mode: MatchMode, playerCount?: number, playerNames?: readonly string[], challenge?: ArenaChallenge): void;
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot;
   applyArenaSnapshot(snapshot: ArenaSnapshot): void;
   setReplica(value: boolean): void;
@@ -266,7 +302,8 @@ export function createClassroom(
     group.add(desk);
   }
 
-  const arena = createArenaTable(arenaWood);
+  let activeChallenge = STANDARD_ARENA;
+  let arena = createArenaTable(arenaWood, activeChallenge);
   arena.position.set(0, 0, 0.4);
   group.add(arena);
 
@@ -349,10 +386,52 @@ export function createClassroom(
   let shotShaped = false;
   let desk: DeskWorld | null = null;
   let pendingDesk: DeskWorld | null = null;
+  const replaceArenaVisual = (challenge: ArenaChallenge) => {
+    group.remove(arena);
+    arena.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) if (material !== arenaWood) material.dispose();
+    });
+    arena = createArenaTable(arenaWood, challenge);
+    arena.position.set(0, 0, challenge.centerZ);
+    group.add(arena);
+  };
+  const configureDeskSafely = (world: DeskWorld, challenge: ArenaChallenge): ArenaChallenge => {
+    try {
+      world.configure(challenge);
+      return challenge;
+    } catch (error: unknown) {
+      console.error(`Arena "${challenge.name}" failed to configure; restoring the classic desk.`, error);
+      try {
+        world.configure(STANDARD_ARENA);
+      } catch (fallbackError: unknown) {
+        console.error('Classic desk fallback failed to configure.', fallbackError);
+      }
+      return STANDARD_ARENA;
+    }
+  };
+  const applyChallenge = (requested?: ArenaChallenge) => {
+    let next = requested ?? STANDARD_ARENA;
+    const validation = validateChallenge(next);
+    if (!validation.valid) {
+      console.warn(`Arena "${next.name}" is invalid (${validation.reason}); using the classic desk.`);
+      next = STANDARD_ARENA;
+    }
+    if (desk) next = configureDeskSafely(desk, next);
+    activeChallenge = next;
+    replaceArenaVisual(activeChallenge);
+  };
   const activatePendingDesk = () => {
     if (desk || !pendingDesk) return;
     desk = pendingDesk;
     pendingDesk = null;
+    const configured = configureDeskSafely(desk, activeChallenge);
+    if (configured !== activeChallenge) {
+      activeChallenge = configured;
+      replaceArenaVisual(activeChallenge);
+    }
     desk.sync(pens, activePlayerCount);
   };
   const ready = startPhysics().then((world) => {
@@ -621,9 +700,12 @@ export function createClassroom(
     replicaTargets[0]!.active = false;
     replicaTargets[1]!.active = false;
     if (activePlayerCount === 2) {
-      const layout = ((!varied || matchMode === 'practice')
+      const challengeLayout = matchMode === 'quick'
+        ? { blue: activeChallenge.spawns[0], red: activeChallenge.spawns[1] }
+        : null;
+      const layout = challengeLayout ?? (((!varied || matchMode === 'practice')
         ? START_LAYOUTS_2P[0]
-        : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length]) ?? START_LAYOUTS_2P[0]!;
+        : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length]) ?? START_LAYOUTS_2P[0]!);
 
       blue.position.set(layout.blue.x, 2.62, layout.blue.z);
       red.position.set(layout.red.x, 2.62, layout.red.z);
@@ -679,14 +761,17 @@ export function createClassroom(
   function launchAi(time: number): void {
     const dx = blue.position.x - red.position.x;
     const dz = blue.position.z - red.position.z;
-    const error = Math.sin(time * 0.0037) * 0.14;
-    const angle = Math.atan2(-dz, dx) + error;
+    const error = Math.sin(time * 0.0037) * activeChallenge.ai.aimError;
+    const safeAngle = safeAiShotAngle(activeChallenge, red.position, blue.position, error);
+    const angle = safeAngle ?? Math.atan2(-(activeChallenge.centerZ - red.position.z), -red.position.x);
     const distance = Math.hypot(dx, dz);
-    const strength = THREE.MathUtils.clamp(distance * 1.15 + 1.2, 4.2, 11.2);
+    const strength = safeAngle === null
+      ? activeChallenge.ai.minImpulse
+      : THREE.MathUtils.clamp(distance * 1.15 + 1.2, activeChallenge.ai.minImpulse, activeChallenge.ai.maxImpulse);
     red.rotation.y = angle;
     if (desk) {
       desk.syncPen(1, red);
-      desk.strike(1, THREE.MathUtils.clamp(error * 4, -0.85, 0.85), Math.cos(angle), -Math.sin(angle), powerForImpulse(strength, 1));
+      desk.strike(1, safeAngle === null ? 0 : THREE.MathUtils.clamp(error * 4, -0.85, 0.85), Math.cos(angle), -Math.sin(angle), powerForImpulse(strength, 1));
     } else {
       redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
       penAngularVelocities[1] = error * 1.8;
@@ -823,6 +908,13 @@ export function createClassroom(
           physicsMotion = step.totalMotion;
           physicsSettled = step.settled;
           desk.applyPoses(pens, activePlayerCount);
+          if (step.tremorStrength > 0) hitListener(1.8 + step.tremorStrength * 8);
+          for (const obstacle of activeChallenge.obstacles) {
+            if (!obstacle.movement) continue;
+            const pose = desk.obstaclePose(obstacle.id);
+            const mesh = arena.getObjectByName(`arena-obstacle:${obstacle.id}`);
+            if (pose && mesh) mesh.position.set(pose.x, mesh.position.y, pose.z - activeChallenge.centerZ);
+          }
         for (const hit of step.hits) {
           const normal = new THREE.Vector2(1, 0);
           shockwave.position.set(hit.x, 2.585, hit.z);
@@ -1280,8 +1372,9 @@ export function createClassroom(
     setHitListener(listener: (intensity: number) => void) {
       hitListener = listener;
     },
-    setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[]) {
+    setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[], challenge?: ArenaChallenge) {
       matchMode = mode;
+      applyChallenge(mode === 'quick' ? challenge : STANDARD_ARENA);
       activePlayerCount = Math.max(2, Math.min(4, playerCount));
       currentMatchPlayerNames = playerNames && playerNames.length >= activePlayerCount
         ? playerNames

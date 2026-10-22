@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
+import { STANDARD_ARENA, validateChallenge, type ArenaChallenge, type ArenaObstacle } from './arena-challenges';
 
 export const DESK_STEP = 1 / 120;
 export const DESK_MAX_SUBSTEPS = 6;
@@ -48,6 +49,7 @@ export interface DeskStep {
   readonly substeps: number;
   readonly totalMotion: number;
   readonly settled: boolean;
+  readonly tremorStrength: number;
 }
 
 interface Pose {
@@ -74,14 +76,16 @@ interface BodyState {
 }
 
 /** A conservative center zone where the pen is fully supported regardless of yaw. */
-export function isSafelyInsideDesk(x: number, z: number): boolean {
+type ArenaBounds = Pick<ArenaChallenge, 'halfWidth' | 'halfDepth' | 'centerZ'>;
+
+export function isSafelyInsideDesk(x: number, z: number, bounds: ArenaBounds = STANDARD_ARENA): boolean {
   const margin = PEN_HALF_LENGTH + PEN_RADIUS;
-  return Math.abs(x) <= DESK_HALF_WIDTH - margin
-    && Math.abs(z - DESK_CENTER_Z) <= DESK_HALF_DEPTH - margin;
+  return Math.abs(x) <= bounds.halfWidth - margin
+    && Math.abs(z - bounds.centerZ) <= bounds.halfDepth - margin;
 }
 
-export function shouldRecoverInteriorPen(x: number, y: number, z: number): boolean {
-  return y < PEN_OUT_Y && isSafelyInsideDesk(x, z);
+export function shouldRecoverInteriorPen(x: number, y: number, z: number, bounds: ArenaBounds = STANDARD_ARENA): boolean {
+  return y < PEN_OUT_Y && isSafelyInsideDesk(x, z, bounds);
 }
 
 /** Lift a tunneled pen back onto the desk without undoing its horizontal collision response. */
@@ -152,29 +156,32 @@ function samePose(pose: Pose): Pose {
  * are drawn between the last two poses.
  */
 export class DeskWorld {
+  readonly #rapier: typeof RAPIER;
   readonly #world: RAPIER.World;
   readonly #queue: RAPIER.EventQueue;
   readonly #pens: PenBody[] = [];
   readonly #penByCollider = new Map<number, number>();
+  readonly #arenaBodies: RAPIER.RigidBody[] = [];
+  readonly #movingObstacles: { body: RAPIER.RigidBody; obstacle: ArenaObstacle }[] = [];
+  readonly #obstacleBodies = new Map<string, RAPIER.RigidBody>();
+  #challenge: ArenaChallenge = STANDARD_ARENA;
+  #elapsed = 0;
+  #tremorElapsed = -1;
+  #tremorPulses = 0;
   #accumulator = 0;
   #alpha = 1;
 
   constructor(rapier: typeof RAPIER) {
+    this.#rapier = rapier;
     this.#world = new rapier.World({ x: 0, y: -36, z: 0 });
     this.#world.timestep = DESK_STEP;
     this.#queue = new rapier.EventQueue(true);
-    const desk = this.#world.createRigidBody(
-      rapier.RigidBodyDesc.fixed().setTranslation(0, DESK_TOP - 0.15, 0.4),
-    );
-    this.#world.createCollider(
-      rapier.ColliderDesc.cuboid(5.75, 0.15, 7.45).setFriction(0.33).setRestitution(0.1),
-      desk,
-    );
     const floor = this.#world.createRigidBody(rapier.RigidBodyDesc.fixed().setTranslation(0, 0.15, 0.4));
     this.#world.createCollider(
       rapier.ColliderDesc.cuboid(18, 0.15, 22).setFriction(0.6).setRestitution(0.05),
       floor,
     );
+    this.configure(STANDARD_ARENA);
     for (let index = 0; index < 4; index += 1) {
       const body = this.#world.createRigidBody(
         rapier.RigidBodyDesc.dynamic()
@@ -196,6 +203,61 @@ export class DeskWorld {
       this.#pens.push({ body, prev: samePose(pose), curr: pose, supported: bodyState(body) });
       this.#penByCollider.set(collider.handle, index);
     }
+  }
+
+  get challenge(): ArenaChallenge { return this.#challenge; }
+
+  configure(requested: ArenaChallenge): void {
+    const challenge = validateChallenge(requested).valid ? requested : STANDARD_ARENA;
+    for (const body of this.#arenaBodies.splice(0)) this.#world.removeRigidBody(body);
+    this.#movingObstacles.length = 0;
+    this.#obstacleBodies.clear();
+    this.#challenge = challenge;
+    this.#elapsed = 0;
+    this.#tremorElapsed = -1;
+    this.#tremorPulses = 0;
+
+    const desk = this.#world.createRigidBody(
+      this.#rapier.RigidBodyDesc.fixed().setTranslation(0, DESK_TOP - 0.15, challenge.centerZ),
+    );
+    this.#world.createCollider(
+      this.#rapier.ColliderDesc.cuboid(challenge.halfWidth, 0.15, challenge.halfDepth).setFriction(0.33).setRestitution(0.1),
+      desk,
+    );
+    this.#arenaBodies.push(desk);
+
+    for (const zone of challenge.frictionZones) {
+      const body = this.#world.createRigidBody(this.#rapier.RigidBodyDesc.fixed().setTranslation(zone.x, DESK_TOP + 0.006, zone.z));
+      this.#world.createCollider(
+        this.#rapier.ColliderDesc.cuboid(zone.halfWidth, 0.006, zone.halfDepth).setFriction(zone.friction).setRestitution(0.05),
+        body,
+      );
+      this.#arenaBodies.push(body);
+    }
+
+    for (const obstacle of challenge.obstacles) {
+      const rotation = { x: 0, y: Math.sin(obstacle.rotation / 2), z: 0, w: Math.cos(obstacle.rotation / 2) };
+      const descriptor = obstacle.movement
+        ? this.#rapier.RigidBodyDesc.kinematicPositionBased()
+        : this.#rapier.RigidBodyDesc.fixed();
+      const body = this.#world.createRigidBody(descriptor
+        .setTranslation(obstacle.x, DESK_TOP + obstacle.height / 2, obstacle.z)
+        .setRotation(rotation));
+      const collider = obstacle.kind === 'bumper'
+        ? this.#rapier.ColliderDesc.cylinder(obstacle.height / 2, obstacle.halfWidth)
+        : this.#rapier.ColliderDesc.cuboid(obstacle.halfWidth, obstacle.height / 2, obstacle.halfDepth);
+      this.#world.createCollider(collider.setFriction(0.48).setRestitution(0.18), body);
+      this.#arenaBodies.push(body);
+      this.#obstacleBodies.set(obstacle.id, body);
+      if (obstacle.movement) this.#movingObstacles.push({ body, obstacle });
+    }
+  }
+
+  obstaclePose(id: string): { x: number; z: number } | null {
+    const body = this.#obstacleBodies.get(id);
+    if (!body) return null;
+    const position = body.translation();
+    return { x: position.x, z: position.z };
   }
 
   #syncPen(index: number, pen: THREE.Object3D): void {
@@ -259,6 +321,36 @@ export class DeskWorld {
       { x: origin.x + forward.x * along, y: origin.y, z: origin.z + forward.z * along },
       true,
     );
+    if (this.#challenge.tremor) {
+      this.#tremorElapsed = 0;
+      this.#tremorPulses = 0;
+    }
+  }
+
+  #advanceHazards(): number {
+    this.#elapsed += DESK_STEP;
+    for (const { body, obstacle } of this.#movingObstacles) {
+      const movement = obstacle.movement;
+      if (!movement) continue;
+      const offset = Math.sin(this.#elapsed * movement.speed + movement.phase) * movement.amplitude;
+      body.setNextKinematicTranslation({
+        x: obstacle.x + (movement.axis === 'x' ? offset : 0),
+        y: DESK_TOP + obstacle.height / 2,
+        z: obstacle.z + (movement.axis === 'z' ? offset : 0),
+      });
+    }
+    const tremor = this.#challenge.tremor;
+    if (!tremor || this.#tremorElapsed < 0) return 0;
+    this.#tremorElapsed += DESK_STEP;
+    const nextPulse = tremor.delay + this.#tremorPulses * tremor.interval;
+    if (this.#tremorPulses >= tremor.pulses || this.#tremorElapsed < nextPulse) return 0;
+    const direction = this.#tremorPulses % 2 === 0 ? 1 : -1;
+    for (const slot of this.#pens) {
+      if (!slot.body.isEnabled() || slot.body.isSleeping()) continue;
+      slot.body.applyImpulse({ x: direction * tremor.strength, y: 0, z: tremor.strength * 0.45 }, true);
+    }
+    this.#tremorPulses += 1;
+    return tremor.strength;
   }
 
   /** Advances fixed physics and summarizes the simulated frame. */
@@ -266,11 +358,13 @@ export class DeskWorld {
     this.#accumulator += Math.min(delta, 0.05);
     let steps = 0;
     const hits: DeskHit[] = [];
+    let tremorStrength = 0;
     while (this.#accumulator >= DESK_STEP && steps < DESK_MAX_SUBSTEPS) {
+      tremorStrength = Math.max(tremorStrength, this.#advanceHazards());
       for (const slot of this.#pens) {
         slot.prev = samePose(slot.curr);
         const position = slot.body.translation();
-        if (slot.body.isEnabled() && position.y >= DESK_TOP + PEN_RADIUS * 0.5 && isSafelyInsideDesk(position.x, position.z)) {
+        if (slot.body.isEnabled() && position.y >= DESK_TOP + PEN_RADIUS * 0.5 && isSafelyInsideDesk(position.x, position.z, this.#challenge)) {
           slot.supported = bodyState(slot.body);
         }
       }
@@ -278,7 +372,7 @@ export class DeskWorld {
       for (const slot of this.#pens) {
         if (!slot.body.isEnabled()) continue;
         const position = slot.body.translation();
-        if (!shouldRecoverInteriorPen(position.x, position.y, position.z)) continue;
+        if (!shouldRecoverInteriorPen(position.x, position.y, position.z, this.#challenge)) continue;
         const safe = slot.supported;
         const linearVelocity = slot.body.linvel();
         const angularVelocity = slot.body.angvel();
@@ -321,7 +415,8 @@ export class DeskWorld {
       totalMotion += motion;
       if (!slot.body.isSleeping() && motion >= 0.45) settled = false;
     }
-    return { hits, substeps: steps, totalMotion, settled };
+    if (settled) this.#tremorElapsed = -1;
+    return { hits, substeps: steps, totalMotion, settled, tremorStrength };
   }
 
   applyPoses(pens: readonly THREE.Object3D[], count: number): void {
@@ -361,7 +456,7 @@ export class DeskWorld {
     const slot = this.#pens[index];
     if (!slot?.body.isEnabled()) return false;
     const position = slot.body.translation();
-    return position.y < PEN_OUT_Y && !isSafelyInsideDesk(position.x, position.z);
+    return position.y < PEN_OUT_Y && !isSafelyInsideDesk(position.x, position.z, this.#challenge);
   }
 
   release(index: number): void {

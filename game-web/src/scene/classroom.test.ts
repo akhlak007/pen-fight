@@ -9,6 +9,7 @@ vi.mock('./textures', () => ({
 
 import { createClassroom } from './classroom';
 import { type DeskWorld, startDeskWorld } from '../game/desk-physics';
+import { challengeForLevel } from '../game/arena-challenges';
 
 describe('classroom aiming preview', () => {
   let scene: ReturnType<typeof createClassroom>;
@@ -132,6 +133,31 @@ describe('classroom aiming preview', () => {
     expect(actions).not.toContain('aiMoving');
     expect(actions).toContain('playerMoving');
     expect(actions).toContain('ready');
+  });
+
+  it('renders a locked Quick Match challenge and restores the standard desk for practice', () => {
+    const challenge = challengeForLevel(24);
+    scene.setMatchMode('quick', 2, undefined, challenge);
+    const obstacleId = challenge.obstacles[0]?.id;
+    expect(obstacleId).toBeDefined();
+    expect(scene.group.getObjectByName(`arena-obstacle:${obstacleId}`)).toBeDefined();
+
+    scene.resetPens();
+    expect(scene.group.getObjectByName(`arena-obstacle:${obstacleId}`)).toBeDefined();
+    scene.setMatchMode('practice');
+    expect(scene.group.getObjectByName(`arena-obstacle:${obstacleId}`)).toBeUndefined();
+    const standardTop = scene.group.getObjectByName('arena-table-top') as THREE.Mesh<THREE.BufferGeometry>;
+    standardTop.geometry.computeBoundingBox();
+    const size = new THREE.Vector3();
+    standardTop.geometry.boundingBox?.getSize(size);
+    expect(size.x).toBeCloseTo(11.8, 2);
+    expect(size.z).toBeCloseTo(14.8, 2);
+    const leftZone = scene.group.getObjectByName('arena-start-zone:0');
+    const rightZone = scene.group.getObjectByName('arena-start-zone:1');
+    expect(leftZone?.position.x).toBeCloseTo(-4.6, 3);
+    expect(leftZone?.position.z).toBeCloseTo(6, 3);
+    expect(rightZone?.position.x).toBeCloseTo(4.6, 3);
+    expect(rightZone?.position.z).toBeCloseTo(-6, 3);
   });
 
   it('defers a late Rapier handoff until the fallback shot finishes', async () => {

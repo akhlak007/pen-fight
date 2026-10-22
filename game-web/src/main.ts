@@ -12,6 +12,7 @@ import { AVATARS, DESKS, PENS, itemUnlocked, validFlagCode } from './profile/pro
 import { levelForXp } from './profile/progression';
 import { AccountClient } from './account/account-client';
 import type { AccountSnapshot, LeaderboardPage } from './account/account-types';
+import { challengeForLevel } from './game/arena-challenges';
 
 function createApplicationShell(): { root: HTMLElement; canvas: HTMLCanvasElement } {
   const root = document.createElement('main');
@@ -66,6 +67,8 @@ const publicProfile = () => ({
   flagCode: store.snapshot.profile.flagCode,
   penId: store.snapshot.profile.selectedPenId,
 });
+const currentQuickChallenge = () => challengeForLevel(levelForXp(store.snapshot.profile.xp));
+let lockedQuickChallenge: ReturnType<typeof challengeForLevel> | null = null;
 
 let renderer: GameRenderer | null = null;
 try {
@@ -129,6 +132,8 @@ const ui = new UiRoot(store, {
     renderer?.setMatchEnabled(false);
   },
   onStartLocal(rivalName) {
+    lockedQuickChallenge = null;
+    ui.setChallengeBanner(null);
     store.startLocalMatch(rivalName);
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.focusArena();
@@ -153,6 +158,8 @@ const ui = new UiRoot(store, {
     else void navigator.clipboard?.writeText(invite.toString());
   },
   onBack() {
+    lockedQuickChallenge = null;
+    ui.setChallengeBanner(null);
     online.close();
     renderer?.setInputListener(null);
     renderer?.setReplica(false);
@@ -164,12 +171,15 @@ const ui = new UiRoot(store, {
   },
   onChooseMode(mode) {
     storage.update({ lastMode: mode });
+    lockedQuickChallenge = mode === 'quick' ? currentQuickChallenge() : null;
+    const challenge = lockedQuickChallenge ?? undefined;
+    ui.setChallengeBanner(challenge ? { level: challenge.level, name: challenge.name } : null);
     store.startMatch(mode);
     renderer?.focusArena();
     renderer?.setLocalPlayer(null);
     renderer?.setCosmeticLoadout(store.snapshot.profile.selectedPenId, store.snapshot.profile.selectedDeskId);
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode(mode, 2);
+    renderer?.setMatchMode(mode, 2, undefined, challenge);
     ambience.startGameAmbience();
   },
   onRematch() {
@@ -182,8 +192,11 @@ const ui = new UiRoot(store, {
       store.startMatch(mode, match?.rivalName);
     }
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
+    const challenge = mode === 'quick' ? (lockedQuickChallenge ?? currentQuickChallenge()) : undefined;
+    lockedQuickChallenge = challenge ?? null;
+    ui.setChallengeBanner(challenge ? { level: challenge.level, name: challenge.name } : null);
     renderer?.setMatchEnabled(true);
-    renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames ?? playerNames);
+    renderer?.setMatchMode(mode, playerCount, store.snapshot.match?.playerNames ?? playerNames, challenge);
     if (mode === 'online') {
       renderer?.setReplica(online.state.seat === 'guest');
       renderer?.setLocalPlayer(online.state.seat === 'guest' ? 1 : 0);
@@ -273,6 +286,8 @@ void accounts.restore().then((account) => { if (account) applyAccount(account); 
 
 function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;
+  lockedQuickChallenge = null;
+  ui.setChallengeBanner(null);
   const hostName = state.players?.[0] || (state.seat === 'host' ? store.snapshot.player.name : 'Host');
   const guestName = state.players?.[1] || (state.seat === 'guest' ? store.snapshot.player.name : 'Guest');
   const playerNames = [hostName, guestName] as const;

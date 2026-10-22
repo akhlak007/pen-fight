@@ -9,6 +9,7 @@ vi.mock('../scene/textures', () => ({
 
 import { createClassroom } from '../scene/classroom';
 import { axialShotEfficiency } from './pen-rules';
+import { STANDARD_ARENA, challengeForLevel } from './arena-challenges';
 import {
   DESK_STEP,
   DESK_TOP,
@@ -43,6 +44,13 @@ describe('desk physics shot', () => {
     expect(isSafelyInsideDesk(0, 7.5)).toBe(false);
     expect(shouldRecoverInteriorPen(0, DESK_TOP - 1, 0.4)).toBe(true);
     expect(shouldRecoverInteriorPen(5.4, DESK_TOP - 1, 0.4)).toBe(false);
+  });
+
+  it('uses configured table bounds for support and knockout recovery', () => {
+    const narrow = challengeForLevel(19);
+    expect(isSafelyInsideDesk(4, narrow.centerZ)).toBe(true);
+    expect(isSafelyInsideDesk(4, narrow.centerZ, narrow)).toBe(false);
+    expect(shouldRecoverInteriorPen(4, DESK_TOP - 1, narrow.centerZ, narrow)).toBe(false);
   });
 
   it('repairs only height without rewinding horizontal collision motion', () => {
@@ -112,6 +120,206 @@ describe('desk physics shot', () => {
     world.copyMotion(velocities, angular);
 
     expect(velocities[0]!.length()).toBeGreaterThan(19);
+  });
+
+  it('reconfigures the physical tabletop without weakening a full shot', async () => {
+    const challenge = challengeForLevel(79);
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const pen = new THREE.Group();
+    pen.position.set(0, DESK_TOP + PEN_RADIUS, challenge.centerZ);
+    world.sync([pen], 1);
+    world.strike(0, 0, 1, 0, 1);
+    world.step(DESK_STEP);
+    const velocities = [new THREE.Vector2()];
+    world.copyMotion(velocities, [0]);
+
+    expect(world.challenge.level).toBe(79);
+    expect(velocities[0]!.length()).toBeGreaterThan(19);
+  });
+
+  it('starts a bounded tremor only after a shot has been released', async () => {
+    const challenge = challengeForLevel(59);
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const pen = new THREE.Group();
+    pen.position.set(0, DESK_TOP + PEN_RADIUS, challenge.centerZ);
+    world.sync([pen], 1);
+
+    for (let index = 0; index < 20; index += 1) expect(world.step(DESK_STEP).tremorStrength).toBe(0);
+    world.strike(0, 0, 1, 0, 0.5);
+    let strongest = 0;
+    for (let index = 0; index < 90; index += 1) strongest = Math.max(strongest, world.step(DESK_STEP).tremorStrength);
+    expect(strongest).toBeGreaterThan(0);
+    expect(strongest).toBeLessThanOrEqual(0.25);
+  });
+
+  it('moves kinematic blockers predictably and removes them on reconfiguration', async () => {
+    const challenge = challengeForLevel(69);
+    const obstacle = challenge.obstacles[0];
+    if (!obstacle) throw new Error('Moving-chalk challenge has no obstacle.');
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const start = world.obstaclePose(obstacle.id);
+    for (let index = 0; index < 120; index += 1) world.step(DESK_STEP);
+    const moved = world.obstaclePose(obstacle.id);
+
+    expect(start).not.toBeNull();
+    expect(moved).not.toBeNull();
+    expect(moved!.x).not.toBeCloseTo(start!.x, 2);
+    world.configure(STANDARD_ARENA);
+    expect(world.obstaclePose(obstacle.id)).toBeNull();
+  });
+
+  it('collides with a fixed bumper without dropping through the tabletop', async () => {
+    const challenge = challengeForLevel(24);
+    const obstacle = challenge.obstacles[0];
+    if (!obstacle) throw new Error('Bumper challenge has no obstacle.');
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const pen = new THREE.Group();
+    pen.position.set(obstacle.x - 3.2, DESK_TOP + PEN_RADIUS, obstacle.z);
+    pen.rotation.y = 0;
+    world.sync([pen], 1);
+    world.strike(0, 0, 1, 0, 0.7);
+
+    let deflected = false;
+    for (let index = 0; index < 240; index += 1) {
+      world.step(DESK_STEP);
+      world.applyPoses([pen], 1);
+      expect(Number.isFinite(pen.position.x + pen.position.y + pen.position.z)).toBe(true);
+      if (Math.abs(pen.position.z - obstacle.z) > 0.08) deflected = true;
+      if (isSafelyInsideDesk(pen.position.x, pen.position.z, challenge)) {
+        expect(pen.position.y).toBeGreaterThan(DESK_TOP - 0.2);
+      }
+    }
+
+    expect(deflected || pen.position.x < obstacle.x + obstacle.halfWidth + PEN_HALF_LENGTH).toBe(true);
+  });
+
+  it('lets a pen retain more speed across a slick patch than the standard desk', async () => {
+    const slickBase = challengeForLevel(49);
+    const slick = {
+      ...slickBase,
+      frictionZones: [{ id: 'test-slick', x: 0, z: slickBase.centerZ, halfWidth: 3.2, halfDepth: 2.2, friction: 0.03 }],
+    };
+    const standardWorld = await startDeskWorld();
+    const slickWorld = await startDeskWorld();
+    slickWorld.configure(slick);
+    const standardPen = new THREE.Group();
+    const slickPen = new THREE.Group();
+    standardPen.position.set(-1.8, DESK_TOP + PEN_RADIUS, STANDARD_ARENA.centerZ);
+    slickPen.position.set(-1.8, DESK_TOP + PEN_RADIUS, slick.centerZ);
+    standardWorld.sync([standardPen], 1);
+    slickWorld.sync([slickPen], 1);
+    standardWorld.strike(0, 0, 1, 0, 0.3);
+    slickWorld.strike(0, 0, 1, 0, 0.3);
+
+    for (let index = 0; index < 24; index += 1) {
+      standardWorld.step(DESK_STEP);
+      slickWorld.step(DESK_STEP);
+    }
+    const standardVelocity = [new THREE.Vector2()];
+    const slickVelocity = [new THREE.Vector2()];
+    standardWorld.copyMotion(standardVelocity, [0]);
+    slickWorld.copyMotion(slickVelocity, [0]);
+
+    expect(slickVelocity[0]!.length()).toBeGreaterThan(standardVelocity[0]!.length());
+  });
+
+  it('keeps moving-blocker contact finite and supported', async () => {
+    const challenge = challengeForLevel(69);
+    const obstacle = challenge.obstacles[0];
+    if (!obstacle?.movement) throw new Error('Moving-chalk challenge has no moving obstacle.');
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const pen = new THREE.Group();
+    pen.position.set(obstacle.x, DESK_TOP + PEN_RADIUS, obstacle.z);
+    pen.rotation.y = Math.PI / 2;
+    world.sync([pen], 1);
+    const startX = pen.position.x;
+
+    for (let index = 0; index < 240; index += 1) {
+      world.step(DESK_STEP);
+      world.applyPoses([pen], 1);
+      expect(Number.isFinite(pen.position.x + pen.position.y + pen.position.z)).toBe(true);
+      if (isSafelyInsideDesk(pen.position.x, pen.position.z, challenge)) {
+        expect(pen.position.y).toBeGreaterThan(DESK_TOP - 0.2);
+      }
+    }
+
+    expect(Math.abs(pen.position.x - startX)).toBeGreaterThan(0.05);
+  });
+
+  it('cleans up old hazard bodies through repeated arena changes', async () => {
+    const world = await startDeskWorld();
+    const levels = [24, 39, 49, 69, 89, 99, 19, 59];
+
+    for (let pass = 0; pass < 4; pass += 1) {
+      for (const level of levels) {
+        const previousIds = world.challenge.obstacles.map((obstacle) => obstacle.id);
+        const next = challengeForLevel(level);
+        world.configure(next);
+        for (const id of previousIds) expect(world.obstaclePose(id)).toBeNull();
+        for (const obstacle of next.obstacles) expect(world.obstaclePose(obstacle.id)).not.toBeNull();
+        expect(world.step(DESK_STEP).substeps).toBe(1);
+      }
+    }
+  });
+
+  it('resolves a maximum-power champion shot without an interior vanish', async () => {
+    const challenge = challengeForLevel(99);
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const pen = new THREE.Group();
+    const spawn = challenge.spawns[0];
+    pen.position.set(spawn.x, DESK_TOP + PEN_RADIUS, spawn.z);
+    pen.rotation.y = spawn.angle;
+    world.sync([pen], 1);
+    world.strike(0, 0, 0.2, -1, 1);
+
+    let resolved = false;
+    for (let index = 0; index < 1200; index += 1) {
+      const result = world.step(DESK_STEP);
+      world.applyPoses([pen], 1);
+      expect(Number.isFinite(pen.position.x + pen.position.y + pen.position.z)).toBe(true);
+      if (isSafelyInsideDesk(pen.position.x, pen.position.z, challenge)) {
+        expect(pen.position.y).toBeGreaterThan(DESK_TOP - 0.2);
+      }
+      if (result.settled || world.isOut(0)) {
+        resolved = true;
+        break;
+      }
+    }
+
+    expect(resolved).toBe(true);
+  });
+
+  it('survives repeated overlapping-pen contacts without either pen vanishing', async () => {
+    const challenge = challengeForLevel(89);
+    const world = await startDeskWorld();
+    world.configure(challenge);
+    const first = new THREE.Group();
+    const second = new THREE.Group();
+
+    for (let round = 0; round < 12; round += 1) {
+      first.position.set(-0.02, DESK_TOP + PEN_RADIUS, challenge.centerZ);
+      second.position.set(0.02, DESK_TOP + PEN_RADIUS, challenge.centerZ);
+      first.rotation.y = round * 0.07;
+      second.rotation.y = Math.PI - round * 0.05;
+      world.sync([first, second], 2);
+      world.strike(round % 2, 0.6, round % 2 ? -1 : 1, 0.08, 0.45);
+      for (let index = 0; index < 180; index += 1) world.step(DESK_STEP);
+      world.applyPoses([first, second], 2);
+
+      for (const pen of [first, second]) {
+        expect(Number.isFinite(pen.position.x + pen.position.y + pen.position.z)).toBe(true);
+        if (isSafelyInsideDesk(pen.position.x, pen.position.z, challenge)) {
+          expect(pen.position.y).toBeGreaterThan(DESK_TOP - 0.2);
+          expect(world.isOut(pen === first ? 0 : 1)).toBe(false);
+        }
+      }
+    }
   });
 
   it('uses opaque pen barrels so overlapping pens remain renderable', async () => {

@@ -13,6 +13,7 @@ import {
 import type { ArenaSnapshot } from '../network/protocol';
 import { createClassroom, type ClassroomScene } from '../scene/classroom';
 import { framePhoneArena } from './arena-camera';
+import { STANDARD_ARENA, type ArenaChallenge } from '../game/arena-challenges';
 
 interface DragGesture {
   point: THREE.Vector3;
@@ -61,6 +62,7 @@ export class GameRenderer {
   #selectedPenId: string | null = null;
   #selectedDeskId = 'classroom-oak';
   #remotePenId: string | null = null;
+  #arenaChallenge: ArenaChallenge = STANDARD_ARENA;
   readonly #queueResize = (): void => {
     this.#resize();
     for (const timer of this.#resizeTimers) window.clearTimeout(timer);
@@ -216,8 +218,12 @@ export class GameRenderer {
   setAimListener(listener: (power: number) => void): void { this.#classroom.setAimListener(listener); }
   setRoundListener(listener: (message: string | null) => void): void { this.#classroom.setRoundListener(listener); }
   setActionListener(listener: (action: ArenaAction) => void): void { this.#classroom.setActionListener(listener); }
-  setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[]): void {
-    this.#classroom.setMatchMode(mode, playerCount, playerNames);
+  setMatchMode(mode: MatchMode, playerCount = 2, playerNames?: readonly string[], challenge?: ArenaChallenge): void {
+    this.#arenaChallenge = mode === 'quick' && challenge ? challenge : STANDARD_ARENA;
+    this.canvas.dataset.arenaLevel = mode === 'quick' ? `${this.#arenaChallenge.level}` : 'standard';
+    this.canvas.dataset.arenaHazard = mode === 'quick' ? this.#arenaChallenge.hazard : 'standard';
+    this.#phoneFrameKey = '';
+    this.#classroom.setMatchMode(mode, playerCount, playerNames, this.#arenaChallenge);
   }
   setReplica(value: boolean): void { this.#classroom.setReplica(value); }
   setLocalPlayer(player: number | null): void {
@@ -328,7 +334,7 @@ export class GameRenderer {
     if (portrait) {
       const frameKey = `${width}x${height}:${isP2 ? 'p2' : 'p1'}`;
       if (frameKey !== this.#phoneFrameKey) {
-        framePhoneArena(this.#camera, width, height, isP2);
+        framePhoneArena(this.#camera, width, height, isP2, this.#arenaChallenge);
         this.#phoneFrameKey = frameKey;
       }
       return;
