@@ -25,4 +25,38 @@ describe('account client', () => {
     expect(await client.restore()).toBeNull();
     expect(client.state).toEqual({ status: 'offline', error: 'offline' });
   });
+
+  it('does not let a stale restore overwrite a successful signup', async () => {
+    let finishRestore!: (value: Response) => void;
+    const restoreResponse = new Promise<Response>((resolve) => { finishRestore = resolve; });
+    const account = { id: 'p2', username: 'Nila', profile: createInitialState().profile };
+    const fetcher = vi.fn()
+      .mockReturnValueOnce(restoreResponse)
+      .mockResolvedValueOnce(response({ account }, 201));
+    const client = new AccountClient(fetcher as typeof fetch);
+
+    const restoring = client.restore();
+    expect(await client.signup('Nila', 'password-1', account.profile)).toEqual(account);
+    finishRestore(response({ account: null }));
+
+    expect(await restoring).toBeNull();
+    expect(client.state).toEqual({ status: 'authenticated', account });
+  });
+
+  it('keeps a valid restore when a concurrent login fails', async () => {
+    let finishRestore!: (value: Response) => void;
+    const restoreResponse = new Promise<Response>((resolve) => { finishRestore = resolve; });
+    const account = { id: 'p3', username: 'Asha', profile: createInitialState().profile };
+    const fetcher = vi.fn()
+      .mockReturnValueOnce(restoreResponse)
+      .mockResolvedValueOnce(response({ error: { message: 'Wrong username or password.' } }, 401));
+    const client = new AccountClient(fetcher as typeof fetch);
+
+    const restoring = client.restore();
+    await expect(client.login('Asha', 'wrong-password')).rejects.toThrow('Wrong username or password.');
+    finishRestore(response({ account }));
+
+    expect(await restoring).toEqual(account);
+    expect(client.state).toEqual({ status: 'authenticated', account });
+  });
 });

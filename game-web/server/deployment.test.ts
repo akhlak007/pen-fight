@@ -30,6 +30,7 @@ describe('production deployment', () => {
       body: JSON.stringify({ username: 'RenderPlayer', password: 'render-password', profile: createInitialState().profile }),
     });
     expect(signup.status).toBe(201);
+    const cookie = signup.headers.get('set-cookie')?.split(';')[0] ?? '';
     await first.close();
 
     const second = createRoomServer({
@@ -43,7 +44,7 @@ describe('production deployment', () => {
     try {
       const secondPort = await second.listen();
       const health = await fetch(`http://127.0.0.1:${secondPort}/health`);
-      const leaderboard = await fetch(`http://127.0.0.1:${secondPort}/api/leaderboard`);
+      const leaderboard = await fetch(`http://127.0.0.1:${secondPort}/api/leaderboard`, { headers: { cookie } });
       expect(await health.json()).toEqual({ ok: true });
       expect(await leaderboard.json()).toMatchObject({ total: 1, entries: [{ username: 'RenderPlayer' }] });
     } finally {

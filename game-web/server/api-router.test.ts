@@ -56,6 +56,18 @@ describe('account API', () => {
     expect(response.status).toBe(403);
   });
 
+  it('requires authentication to read the leaderboard', async () => {
+    const server = createRoomServer({ port: 0, accountDatabase: ':memory:' });
+    servers.push(server);
+    const port = await server.listen();
+    const response = await fetch(`http://127.0.0.1:${port}/api/leaderboard`);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: { code: 'authentication_required', message: 'Sign up or sign in to view the leaderboard.' },
+    });
+  });
+
   it('allows the local development proxy origin only when cross-port origins are enabled', async () => {
     const server = createRoomServer({ port: 0, accountDatabase: ':memory:', allowCrossPortOrigin: true });
     servers.push(server);

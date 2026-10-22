@@ -89,9 +89,10 @@ export class ApiRouter {
         return;
       }
       if (url.pathname === '/api/leaderboard' && request.method === 'GET') {
+        if (!account) throw new AccountError('authentication_required', 'Sign up or sign in to view the leaderboard.', 401);
         const offset = Number(url.searchParams.get('offset') ?? 0);
         const limit = Number(url.searchParams.get('limit') ?? 50);
-        json(response, 200, await this.accounts.leaderboard(Number.isFinite(offset) ? offset : 0, Number.isFinite(limit) ? limit : 50, account?.id));
+        json(response, 200, await this.accounts.leaderboard(Number.isFinite(offset) ? offset : 0, Number.isFinite(limit) ? limit : 50, account.id));
         return;
       }
       if (['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/profile', '/api/leaderboard'].includes(url.pathname)) {

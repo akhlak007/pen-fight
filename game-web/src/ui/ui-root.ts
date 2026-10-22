@@ -83,6 +83,7 @@ export class UiRoot {
   #friendSetupMode: 'local' | 'online' = 'local';
   #account: AccountState = { status: 'checking' };
   #leaderboard: { loading: boolean; page?: LeaderboardPage; error?: string } = { loading: false };
+  #accountGate: 'leaderboard' | null = null;
   #challengeBanner: { level: number; name: string } | null = null;
   #challengeVisible = false;
   #challengeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -105,6 +106,11 @@ export class UiRoot {
   setLeaderboardState(state: { loading: boolean; page?: LeaderboardPage; error?: string }): void {
     this.#leaderboard = state;
     if (this.#state.phase === 'leaderboard') this.render(this.#state);
+  }
+
+  setAccountGate(gate: 'leaderboard' | null): void {
+    this.#accountGate = gate;
+    if (this.#state.phase === 'account') this.render(this.#state);
   }
 
   setChallengeBanner(challenge: { level: number; name: string } | null): void {
@@ -568,6 +574,7 @@ export class UiRoot {
           ` : `
             <p class="eyebrow">PEN FIGHT ACCOUNT</p>
             <h1 id="account-title">Save your place</h1>
+            ${this.#accountGate === 'leaderboard' ? '<p class="account-gate-note" role="status"><strong>ACCOUNT REQUIRED</strong><span>Sign up or sign in to view the leaderboard.</span></p>' : ''}
             ${this.#account.status === 'offline' ? `<p class="account-status-error" role="status">Account server unavailable. Local play still works.</p>` : ''}
             <div class="account-tabs" role="tablist" aria-label="Account action">
               <button type="button" role="tab" class="account-tab active" data-account-tab="signup" aria-selected="true">CREATE ACCOUNT</button>

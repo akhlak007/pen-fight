@@ -108,6 +108,14 @@ describe('match rules', () => {
     expect(store.snapshot.match?.reward).toMatchObject({ eligible: true, xp: 100 });
   });
 
+  it('can continue from account access to the leaderboard', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('account');
+    store.transition('leaderboard');
+    expect(store.snapshot.phase).toBe('leaderboard');
+  });
+
   it('records a result once and starts a fresh reward on rematch', () => {
     const store = readyStore('quick');
     store.recordPoint(1);

@@ -14,6 +14,7 @@ type Listener = (state: AccountState) => void;
 
 export class AccountClient {
   #state: AccountState = { status: 'checking' };
+  #restoreVersion = 0;
   readonly #listeners = new Set<Listener>();
 
   constructor(private readonly fetcher: Fetcher = globalThis.fetch.bind(globalThis)) {}
@@ -27,11 +28,14 @@ export class AccountClient {
   }
 
   async restore(): Promise<AccountSnapshot | null> {
+    const version = this.#restoreVersion;
     try {
       const data = await this.#request<{ account: AccountSnapshot | null }>('/api/auth/me');
+      if (version !== this.#restoreVersion) return null;
       this.#set(data.account ? { status: 'authenticated', account: data.account } : { status: 'guest' });
       return data.account;
     } catch (error) {
+      if (version !== this.#restoreVersion) return null;
       this.#set({ status: 'offline', error: this.#message(error) });
       return null;
     }
@@ -39,18 +43,21 @@ export class AccountClient {
 
   async signup(username: string, password: string, profile: ProfileSnapshot): Promise<AccountSnapshot> {
     const data = await this.#request<{ account: AccountSnapshot }>('/api/auth/signup', { method: 'POST', body: JSON.stringify({ username, password, profile }) });
+    this.#restoreVersion += 1;
     this.#set({ status: 'authenticated', account: data.account });
     return data.account;
   }
 
   async login(username: string, password: string): Promise<AccountSnapshot> {
     const data = await this.#request<{ account: AccountSnapshot }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    this.#restoreVersion += 1;
     this.#set({ status: 'authenticated', account: data.account });
     return data.account;
   }
 
   async logout(): Promise<void> {
     await this.#request<undefined>('/api/auth/logout', { method: 'POST' }, true);
+    this.#restoreVersion += 1;
     this.#set({ status: 'guest' });
   }
 

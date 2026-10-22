@@ -18,7 +18,7 @@ const legalTransitions: Readonly<Record<AppPhase, readonly AppPhase[]>> = {
   naming: ['home', 'fatalError'],
   home: ['naming', 'profile', 'account', 'leaderboard', 'settingUpLocal', 'selectingMode', 'match', 'fatalError'],
   profile: ['home', 'naming', 'fatalError'],
-  account: ['home', 'fatalError'],
+  account: ['home', 'leaderboard', 'fatalError'],
   leaderboard: ['home', 'account', 'fatalError'],
   settingUpLocal: ['home', 'match', 'fatalError'],
   selectingMode: ['home', 'match', 'fatalError'],

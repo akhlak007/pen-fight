@@ -82,6 +82,7 @@ try {
 }
 
 let leaderboardPage: LeaderboardPage | undefined;
+let leaderboardRequested = false;
 let applyingServerProfile = false;
 const applyAccount = (account: AccountSnapshot) => {
   applyingServerProfile = true;
@@ -105,6 +106,18 @@ const applyAccount = (account: AccountSnapshot) => {
   renderer?.setPlayerName(account.username);
   renderer?.setCosmeticLoadout(account.profile.selectedPenId, account.profile.selectedDeskId);
   applyingServerProfile = false;
+};
+
+const openLeaderboard = () => {
+  leaderboardRequested = false;
+  ui.setAccountGate(null);
+  if (store.snapshot.phase !== 'leaderboard') store.transition('leaderboard');
+  leaderboardPage = undefined;
+  ui.setLeaderboardState({ loading: true });
+  void accounts.leaderboard().then((page) => {
+    leaderboardPage = page;
+    ui.setLeaderboardState({ loading: false, page });
+  }).catch((error: unknown) => ui.setLeaderboardState({ loading: false, error: error instanceof Error ? error.message : 'Leaderboard unavailable.' }));
 };
 
 const ui = new UiRoot(store, {
@@ -158,6 +171,8 @@ const ui = new UiRoot(store, {
     else void navigator.clipboard?.writeText(invite.toString());
   },
   onBack() {
+    leaderboardRequested = false;
+    ui.setAccountGate(null);
     lockedQuickChallenge = null;
     ui.setChallengeBanner(null);
     online.close();
@@ -216,26 +231,32 @@ const ui = new UiRoot(store, {
     renderer?.setMatchEnabled(false);
   },
   onOpenAccount() {
+    leaderboardRequested = false;
+    ui.setAccountGate(null);
     if (store.snapshot.phase === 'home') store.transition('account');
     renderer?.focusRoom();
     renderer?.setMatchEnabled(false);
   },
   onOpenLeaderboard() {
-    if (store.snapshot.phase === 'home') store.transition('leaderboard');
-    leaderboardPage = undefined;
-    ui.setLeaderboardState({ loading: true });
-    void accounts.leaderboard().then((page) => {
-      leaderboardPage = page;
-      ui.setLeaderboardState({ loading: false, page });
-    }).catch((error: unknown) => ui.setLeaderboardState({ loading: false, error: error instanceof Error ? error.message : 'Leaderboard unavailable.' }));
+    if (accounts.state.status !== 'authenticated') {
+      leaderboardRequested = true;
+      ui.setAccountGate('leaderboard');
+      if (store.snapshot.phase === 'home') store.transition('account');
+      renderer?.focusRoom();
+      renderer?.setMatchEnabled(false);
+      return;
+    }
+    openLeaderboard();
   },
   async onSignup(username, password) {
     const account = await accounts.signup(username, password, store.snapshot.profile);
     applyAccount(account);
+    if (leaderboardRequested) openLeaderboard();
   },
   async onLogin(username, password) {
     const account = await accounts.login(username, password);
     applyAccount(account);
+    if (leaderboardRequested) openLeaderboard();
   },
   async onLogout() {
     await accounts.logout();
@@ -282,7 +303,11 @@ const ui = new UiRoot(store, {
 });
 if (pendingRoom) ui.setPendingInvite(pendingRoom);
 accounts.subscribe((state) => ui.setAccountState(state));
-void accounts.restore().then((account) => { if (account) applyAccount(account); });
+void accounts.restore().then((account) => {
+  if (!account) return;
+  applyAccount(account);
+  if (leaderboardRequested) openLeaderboard();
+});
 
 function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;

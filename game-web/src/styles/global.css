@@ -1700,6 +1700,9 @@ select {
 .account-profile-summary div { display: grid; gap: 4px; color: var(--ink-blue); }
 .account-profile-summary small { font: 800 10px ui-monospace, monospace; }
 .account-status-error { padding: 10px; color: #9d3024; border-radius: 6px; background: #fae1d5; font-weight: 800; }
+.account-gate-note { display: grid; gap: 3px; margin: 14px 0 2px; padding: 11px 13px; color: var(--ink-blue); border: 2px solid rgba(29,72,140,.22); border-radius: 7px; background: rgba(125,190,232,.18); }
+.account-gate-note strong { font: 900 10px ui-monospace, monospace; letter-spacing: .08em; }
+.account-gate-note span { font-weight: 800; }
 .signout-button { margin-top: 12px; }
 .leaderboard-card { display: flex; flex-direction: column; width: min(1050px, 100%); height: 100%; margin: 0 auto; padding: clamp(18px, 3vw, 34px); overflow: hidden; border-radius: 14px; }
 .leaderboard-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 13px; border-bottom: 3px solid rgba(29,72,140,.18); }
