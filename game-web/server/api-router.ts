@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProfileSnapshot } from '../src/app/app-state';
-import { AccountError, AccountStore } from './account-store';
+import { AccountError } from './account-store';
+import type { AccountRepository } from './account-repository';
 
 const COOKIE = 'penfight_session';
 const BODY_LIMIT = 32 * 1024;
@@ -47,7 +48,7 @@ export interface ApiRouterOptions { secureCookies?: boolean; allowCrossPortOrigi
 export class ApiRouter {
   readonly #attempts = new Map<string, { count: number; started: number }>();
 
-  constructor(readonly accounts: AccountStore, private readonly options: ApiRouterOptions = {}) {}
+  constructor(readonly accounts: AccountRepository, private readonly options: ApiRouterOptions = {}) {}
 
   async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
@@ -55,24 +56,24 @@ export class ApiRouter {
       if (!url.pathname.startsWith('/api/')) throw new AccountError('not_found', 'Not found.', 404);
       if (request.method !== 'GET') this.#requireSameOrigin(request);
       const token = tokenFromCookie(request);
-      const account = this.accounts.accountForSession(token);
+      const account = await this.accounts.accountForSession(token);
 
       if (url.pathname === '/api/auth/signup' && request.method === 'POST') {
         const body = await readJson(request);
         this.#rateLimit(request, 'signup', String(body.username ?? ''));
-        const result = this.accounts.signup(String(body.username ?? ''), String(body.password ?? ''), requireProfile(body.profile));
+        const result = await this.accounts.signup(String(body.username ?? ''), String(body.password ?? ''), requireProfile(body.profile));
         json(response, 201, { account: result.account }, { 'set-cookie': this.#sessionCookie(result.token) });
         return;
       }
       if (url.pathname === '/api/auth/login' && request.method === 'POST') {
         const body = await readJson(request);
         this.#rateLimit(request, 'login', String(body.username ?? ''));
-        const result = this.accounts.login(String(body.username ?? ''), String(body.password ?? ''));
+        const result = await this.accounts.login(String(body.username ?? ''), String(body.password ?? ''));
         json(response, 200, { account: result.account }, { 'set-cookie': this.#sessionCookie(result.token) });
         return;
       }
       if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
-        this.accounts.logout(token);
+        await this.accounts.logout(token);
         response.writeHead(204, { 'cache-control': 'no-store', 'set-cookie': this.#clearCookie() });
         response.end();
         return;
@@ -84,13 +85,13 @@ export class ApiRouter {
       if (url.pathname === '/api/profile' && request.method === 'PATCH') {
         if (!account) throw new AccountError('authentication_required', 'Sign in to synchronize progress.', 401);
         const body = await readJson(request);
-        json(response, 200, { account: this.accounts.updateProfile(account.id, requireProfile(body.profile)) });
+        json(response, 200, { account: await this.accounts.updateProfile(account.id, requireProfile(body.profile)) });
         return;
       }
       if (url.pathname === '/api/leaderboard' && request.method === 'GET') {
         const offset = Number(url.searchParams.get('offset') ?? 0);
         const limit = Number(url.searchParams.get('limit') ?? 50);
-        json(response, 200, this.accounts.leaderboard(Number.isFinite(offset) ? offset : 0, Number.isFinite(limit) ? limit : 50, account?.id));
+        json(response, 200, await this.accounts.leaderboard(Number.isFinite(offset) ? offset : 0, Number.isFinite(limit) ? limit : 50, account?.id));
         return;
       }
       if (['/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/profile', '/api/leaderboard'].includes(url.pathname)) {

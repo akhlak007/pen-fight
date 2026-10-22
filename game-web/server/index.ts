@@ -27,5 +27,7 @@ app.listen()
   .then((actualPort) => console.log(`Pen Fight server ready on http://0.0.0.0:${actualPort}`))
   .catch((error) => {
     console.error('Pen Fight could not start.', error);
-    process.exitCode = 1;
+    void app.close().catch((closeError) => console.error('Pen Fight startup cleanup failed.', closeError)).finally(() => {
+      process.exitCode = 1;
+    });
   });

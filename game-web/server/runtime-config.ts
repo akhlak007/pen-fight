@@ -14,12 +14,16 @@ export function runtimeConfig(input: RuntimeConfigInput = {}): RoomServerOptions
   const production = args.includes('--production') || env.NODE_ENV === 'production';
   const requestedPort = Number(env.PORT ?? (production ? 4173 : 4174));
   const port = Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65_535 ? requestedPort : (production ? 4173 : 4174);
-  const dataDirectory = resolve(cwd, env.DATA_DIR?.trim() || 'data');
+  const databaseUrl = env.DATABASE_URL?.trim();
+  if (production && !databaseUrl) throw new Error('DATABASE_URL is required in production. Add your Neon pooled connection string in Render.');
+  const persistence = databaseUrl
+    ? { databaseUrl }
+    : { accountDatabase: join(resolve(cwd, env.DATA_DIR?.trim() || 'data'), 'pen-fight.sqlite') };
 
   return {
     port,
     host: '0.0.0.0',
-    accountDatabase: join(dataDirectory, 'pen-fight.sqlite'),
+    ...persistence,
     allowCrossPortOrigin: !production,
     secureCookies: production && env.ALLOW_INSECURE_COOKIES !== 'true',
   };

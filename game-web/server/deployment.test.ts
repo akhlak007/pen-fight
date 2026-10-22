@@ -1,25 +1,27 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import type { Pool } from 'pg';
+import { newDb } from 'pg-mem';
+import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../src/app/app-state';
+import { PostgresAccountStore } from './postgres-account-store';
 import { createRoomServer } from './room-server';
 import { runtimeConfig } from './runtime-config';
 
 describe('production deployment', () => {
-  const directories: string[] = [];
-  afterEach(() => {
-    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
-  });
-
-  it('persists registered players in DATA_DIR across a server restart', async () => {
-    const dataDirectory = mkdtempSync(join(tmpdir(), 'pen-fight-render-'));
-    directories.push(dataDirectory);
+  it('persists registered players in Postgres across a server restart', async () => {
+    const database = newDb();
+    const adapter = database.adapters.createPg();
     const options = runtimeConfig({
       args: ['node', 'server/index.ts', '--production'],
-      env: { PORT: '0', DATA_DIR: dataDirectory, NODE_ENV: 'production' },
+      env: { PORT: '0', DATABASE_URL: 'postgres://neon.test/penfight', NODE_ENV: 'production' },
     });
-    const first = createRoomServer(options);
+    const first = createRoomServer({
+      ...options,
+      accountRepository: new PostgresAccountStore('postgres://neon.test/penfight', {
+        pool: new adapter.Pool() as unknown as Pool,
+        advisoryLock: false,
+        validateCatalog: false,
+      }),
+    });
     const firstPort = await first.listen();
     const firstBase = `http://127.0.0.1:${firstPort}`;
     const signup = await fetch(`${firstBase}/api/auth/signup`, {
@@ -30,8 +32,14 @@ describe('production deployment', () => {
     expect(signup.status).toBe(201);
     await first.close();
 
-    expect(existsSync(join(dataDirectory, 'pen-fight.sqlite'))).toBe(true);
-    const second = createRoomServer(options);
+    const second = createRoomServer({
+      ...options,
+      accountRepository: new PostgresAccountStore('postgres://neon.test/penfight', {
+        pool: new adapter.Pool() as unknown as Pool,
+        advisoryLock: false,
+        validateCatalog: false,
+      }),
+    });
     try {
       const secondPort = await second.listen();
       const health = await fetch(`http://127.0.0.1:${secondPort}/health`);

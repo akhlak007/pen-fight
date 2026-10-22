@@ -5,7 +5,9 @@ import { extname, join, normalize } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { MAX_FRAME_BYTES, parseClientMessage, type ClientMessage, type PublicProfile, type Seat, type ServerMessage } from '../src/network/protocol';
 import { AccountStore } from './account-store';
+import type { AccountRepository } from './account-repository';
 import { ApiRouter } from './api-router';
+import { PostgresAccountStore } from './postgres-account-store';
 
 interface Peer { socket: WebSocket | null; name: string; profile?: PublicProfile; tokenHash: string; seq: number; disconnectedAt?: number }
 interface Room { code: string; host: Peer; guest?: Peer; touchedAt: number; latestSnapshot?: ServerMessage; latestState?: ServerMessage; currentPlayer: 0 | 1; traffic: number; trafficWindow: number }
@@ -18,12 +20,15 @@ const send = (socket: WebSocket | null, message: ServerMessage) => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 };
 
-export interface RoomServerOptions { port?: number; host?: string; dist?: string; roomTtlMs?: number; reconnectMs?: number; allowCrossPortOrigin?: boolean; accountDatabase?: string; secureCookies?: boolean }
+export interface RoomServerOptions { port?: number; host?: string; dist?: string; roomTtlMs?: number; reconnectMs?: number; allowCrossPortOrigin?: boolean; accountDatabase?: string; databaseUrl?: string; accountRepository?: AccountRepository; secureCookies?: boolean }
 
 export function createRoomServer(options: RoomServerOptions = {}): { server: Server; rooms: Map<string, Room>; listen(): Promise<number>; close(): Promise<void> } {
   const rooms = new Map<string, Room>();
   const dist = options.dist ?? join(process.cwd(), 'dist');
-  const accounts = new AccountStore(options.accountDatabase ?? (options.port === 0 ? ':memory:' : join(process.cwd(), 'data', 'pen-fight.sqlite')));
+  const accounts = options.accountRepository
+    ?? (options.databaseUrl
+      ? new PostgresAccountStore(options.databaseUrl)
+      : new AccountStore(options.accountDatabase ?? (options.port === 0 ? ':memory:' : join(process.cwd(), 'data', 'pen-fight.sqlite'))));
   const api = new ApiRouter(accounts, {
     secureCookies: options.secureCookies,
     allowCrossPortOrigin: options.allowCrossPortOrigin,
@@ -36,9 +41,13 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
       return;
     }
     if (request.url === '/health') {
-      const healthy = accounts.healthy();
-      response.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({ ok: healthy }));
+      void Promise.resolve(accounts.healthy()).then((healthy) => {
+        response.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        response.end(JSON.stringify({ ok: healthy }));
+      }).catch(() => {
+        response.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        response.end(JSON.stringify({ ok: false }));
+      });
       return;
     }
     const path = normalize((request.url ?? '/').split('?')[0] ?? '/').replace(/^(\.\.[/\\])+/, '');
@@ -142,16 +151,26 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
   }, 5_000); cleanup.unref();
   return {
     server, rooms,
-    listen: () => new Promise((resolve) => server.listen(options.port ?? 4174, options.host ?? '0.0.0.0', () => resolve((server.address() as { port: number }).port))),
-    close: () => new Promise((resolve, reject) => {
+    listen: async () => {
+      await accounts.initialize();
+      return new Promise((resolve) => server.listen(options.port ?? 4174, options.host ?? '0.0.0.0', () => resolve((server.address() as { port: number }).port)));
+    },
+    close: async () => {
       clearInterval(cleanup);
       clearInterval(heartbeat);
       for (const socket of wss.clients) socket.terminate();
+      if (!server.listening) {
+        await accounts.close();
+        return;
+      }
       wss.close();
-      server.close((error) => {
-        accounts.close();
-        if (error) reject(error); else resolve();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          void Promise.resolve(accounts.close()).then(() => {
+            if (error) reject(error); else resolve();
+          }).catch(reject);
+        });
       });
-    }),
+    },
   };
 }

@@ -4,11 +4,12 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AccountSnapshot, LeaderboardEntry, LeaderboardPage } from '../src/account/account-types';
 import type { ProfileSnapshot } from '../src/app/app-state';
+import type { AccountRepository } from './account-repository';
 import { AVATARS, DEFAULT_AVATAR_ID, DEFAULT_DESK_ID, DEFAULT_FLAG_CODE, DEFAULT_PEN_ID, DESKS, PENS, validFlagCode } from '../src/profile/profile-catalog';
 import { levelForXp } from '../src/profile/progression';
 
-const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
-const USERNAME = /^[A-Za-z0-9_]{3,18}$/;
+export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+export const USERNAME = /^[A-Za-z0-9_]{3,18}$/;
 const SAFE_ID = /^[a-z0-9-]{1,40}$/;
 const MAX_PROFILE_DELTA = Object.freeze({ xp: 1000, wins: 10, matches: 10 });
 const avatarIds = new Set(AVATARS.map((item) => item.id));
@@ -42,11 +43,11 @@ export class AccountError extends Error {
   }
 }
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function passwordHash(password: string, salt: string): string {
+export function passwordHash(password: string, salt: string): string {
   return scryptSync(password, salt, 64, { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }).toString('hex');
 }
 
@@ -65,7 +66,7 @@ function safeAwardedIds(value: unknown): string[] {
   return [...new Set(value.filter((item): item is string => typeof item === 'string' && SAFE_ID.test(item)))].slice(-100);
 }
 
-function sanitizeProfile(value: ProfileSnapshot): ProfileSnapshot {
+export function sanitizeProfile(value: ProfileSnapshot): ProfileSnapshot {
   const xp = safeNatural(value.xp);
   const wins = safeNatural(value.wins);
   const matches = safeNatural(value.matches);
@@ -111,11 +112,29 @@ function profileFromRow(row: PlayerRow): ProfileSnapshot {
   };
 }
 
+export function mergeProfileUpdate(previous: ProfileSnapshot, requested: ProfileSnapshot): ProfileSnapshot {
+  const profile = sanitizeProfile(requested);
+  if (profile.xp < previous.xp || profile.wins < previous.wins || profile.matches < previous.matches) {
+    throw new AccountError('progress_conflict', 'Saved progress cannot move backwards.', 409);
+  }
+  if (profile.xp - previous.xp > MAX_PROFILE_DELTA.xp || profile.wins - previous.wins > MAX_PROFILE_DELTA.wins || profile.matches - previous.matches > MAX_PROFILE_DELTA.matches) {
+    throw new AccountError('progress_too_large', 'That progress update is too large.', 422);
+  }
+  if (profile.wins - previous.wins > profile.matches - previous.matches) {
+    throw new AccountError('invalid_profile', 'New wins must belong to new matches.');
+  }
+  return {
+    ...profile,
+    unlockedCosmeticIds: safeIds([...previous.unlockedCosmeticIds, ...profile.unlockedCosmeticIds], cosmeticIds, cosmeticIds.size),
+    awardedMatchIds: safeAwardedIds([...previous.awardedMatchIds, ...profile.awardedMatchIds]),
+  };
+}
+
 function accountFromRow(row: PlayerRow): AccountSnapshot {
   return { id: row.id, username: row.username, profile: profileFromRow(row) };
 }
 
-export class AccountStore {
+export class AccountStore implements AccountRepository {
   readonly #db: DatabaseSync;
 
   constructor(path: string) {
@@ -204,6 +223,8 @@ export class AccountStore {
 
   close(): void { this.#db.close(); }
 
+  async initialize(): Promise<void> {}
+
   healthy(): boolean {
     try {
       const integrity = this.#db.prepare('PRAGMA quick_check(1)').get() as { quick_check?: string } | undefined;
@@ -278,23 +299,12 @@ export class AccountStore {
   updateProfile(playerId: string, requested: ProfileSnapshot, now = Date.now()): AccountSnapshot {
     const row = this.#player(playerId);
     const previous = profileFromRow(row);
-    const profile = sanitizeProfile(requested);
-    if (profile.xp < previous.xp || profile.wins < previous.wins || profile.matches < previous.matches) {
-      throw new AccountError('progress_conflict', 'Saved progress cannot move backwards.', 409);
-    }
-    if (profile.xp - previous.xp > MAX_PROFILE_DELTA.xp || profile.wins - previous.wins > MAX_PROFILE_DELTA.wins || profile.matches - previous.matches > MAX_PROFILE_DELTA.matches) {
-      throw new AccountError('progress_too_large', 'That progress update is too large.', 422);
-    }
-    if (profile.wins - previous.wins > profile.matches - previous.matches) {
-      throw new AccountError('invalid_profile', 'New wins must belong to new matches.');
-    }
-    const unlockedCosmeticIds = safeIds([...previous.unlockedCosmeticIds, ...profile.unlockedCosmeticIds], cosmeticIds, cosmeticIds.size);
-    const awardedMatchIds = safeAwardedIds([...previous.awardedMatchIds, ...profile.awardedMatchIds]);
+    const profile = mergeProfileUpdate(previous, requested);
     this.#db.prepare(`UPDATE players SET avatar_id = ?, flag_code = ?, selected_pen_id = ?, selected_desk_id = ?,
       xp = ?, wins = ?, matches = ?, unlocked_json = ?, awarded_json = ?, last_active = ? WHERE id = ?`).run(
       profile.avatarId, profile.flagCode, profile.selectedPenId, profile.selectedDeskId,
-      profile.xp, profile.wins, profile.matches, JSON.stringify(unlockedCosmeticIds),
-      JSON.stringify(awardedMatchIds), now, playerId,
+      profile.xp, profile.wins, profile.matches, JSON.stringify(profile.unlockedCosmeticIds),
+      JSON.stringify(profile.awardedMatchIds), now, playerId,
     );
     return accountFromRow(this.#player(playerId));
   }

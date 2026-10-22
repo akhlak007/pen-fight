@@ -1,48 +1,54 @@
-# Deploy Pen Fight on Render
+# Deploy Pen Fight on Render Free + Neon Free
 
-Pen Fight runs as one Render Node web service. The same process serves the built website, account API, SQLite leaderboard, and WebSocket match rooms.
+Pen Fight runs as one free Render Node web service. The same process serves the website, account API, leaderboard, and WebSocket match rooms. Player accounts live in a free Neon PostgreSQL database, so they survive Render restarts and deploys.
 
-## Before deploying
+## 1. Create the free database
 
-- Push this repository to GitHub, GitLab, or Bitbucket.
-- Use a paid Render web-service plan. Render does not support persistent disks on the free plan.
-- Keep the service at one instance. SQLite and active match rooms are local to that instance.
+1. Sign in at [Neon](https://neon.tech/) and create a project.
+2. Open the project's **Connect** panel.
+3. Select the pooled connection and copy its `postgresql://...` connection string.
+4. Keep this value private. It contains the database password.
 
-## Create the service
+The server creates its account tables and indexes automatically on first startup.
 
-1. In Render, select **New → Blueprint**.
-2. Connect the repository containing the root `render.yaml` file.
-3. Confirm the `pen-fight` web service and `pen-fight-data` disk.
-4. Apply the Blueprint and wait for the build and health check to pass.
+## 2. Create the free Render service
+
+1. Push this repository to GitHub, GitLab, or Bitbucket.
+2. In Render, select **New > Blueprint**.
+3. Connect the repository containing the root `render.yaml` file.
+4. When Render asks for `DATABASE_URL`, paste the Neon pooled connection string.
+5. Apply the Blueprint and wait for the build and health check to pass.
 
 The Blueprint configures:
 
+- Free Render web-service plan
 - Root directory: `game-web`
 - Build command: `npm ci --include=dev && npm run build`
 - Start command: `npm start`
 - Health check: `/health`
 - Node.js: `24.21.0`
-- Persistent SQLite directory: `/var/data`
-- Same-origin secure WebSocket rooms (`wss://YOUR-SERVICE.onrender.com/ws`)
+- Secure same-origin WebSocket rooms at `/ws`
 - One service instance
 
-Render supplies `PORT` automatically and terminates public HTTPS before forwarding traffic to the Node server. The app still issues `Secure`, `HttpOnly`, `SameSite=Lax` account cookies.
+Render supplies `PORT` and public HTTPS automatically. The app issues `Secure`, `HttpOnly`, `SameSite=Lax` account cookies. `DATABASE_URL` is a secret and is not stored in the repository.
 
-## Verify the deployment
+## 3. Verify the deployment
 
-1. Open `https://YOUR-SERVICE.onrender.com/health`. It should return `{"ok":true}`.
+1. Open `https://YOUR-SERVICE.onrender.com/health`; it should return `{"ok":true}`.
 2. Open the main URL and create an account.
 3. Confirm the account appears in **Class Ranking**.
 4. Trigger a manual restart or deploy, sign in again, and confirm the account and ranking remain available.
-5. Create an online friend room and open the invite from another browser or phone.
+5. Create a friend room and open its invite from another browser or phone.
 
-## Persistent data and backups
+## Free-tier behavior
 
-Accounts and leaderboard data are stored at `/var/data/pen-fight.sqlite`. Only that mounted path survives deploys and restarts. Render takes daily persistent-disk snapshots, but exporting periodic SQLite backups is still recommended before major releases.
+Render's free service can spin down while idle, so the first request after a quiet period may take longer. A sleep, restart, or deploy ends active match rooms because rooms are held in server memory. Accounts, profiles, unlocks, and leaderboard rows remain in Neon.
 
-The persistent disk disables Render's zero-downtime deploys. A deploy or restart can briefly interrupt the site and ends any match rooms that are currently in memory; saved accounts and leaderboard entries remain intact.
+Keep the service at one instance because live rooms are in memory. Monitor the free usage limits in both Render and Neon dashboards. Never publish `DATABASE_URL` or put it in frontend variables such as `VITE_DATABASE_URL`.
 
-Do not remove the disk or change `DATA_DIR` after players have registered. Do not set `ALLOW_INSECURE_COOKIES=true` on the public deployment.
+## Local development
+
+`npm run dev` uses local SQLite at `game-web/data/pen-fight.sqlite`; no cloud database is required. To exercise PostgreSQL locally, set `DATABASE_URL` before starting the server.
 
 ## Custom domain
 

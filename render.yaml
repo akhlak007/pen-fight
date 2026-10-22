@@ -3,7 +3,7 @@ services:
     name: pen-fight
     runtime: node
     rootDir: game-web
-    plan: 0.5c-512mb
+    plan: free
     numInstances: 1
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
@@ -13,11 +13,7 @@ services:
         value: 24.21.0
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /var/data
+      - key: DATABASE_URL
+        sync: false
       - key: VITE_WS_MODE
         value: server
-    disk:
-      name: pen-fight-data
-      mountPath: /var/data
-      sizeGB: 1

@@ -1,22 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { join, resolve } from 'node:path';
 import { runtimeConfig } from './runtime-config';
 
 describe('production runtime configuration', () => {
-  it('uses Render port, persistent data directory, and secure cookies', () => {
+  it('uses Render port, Neon database, and secure cookies', () => {
     const config = runtimeConfig({
       args: ['node', 'server/index.ts', '--production'],
-      env: { PORT: '10000', DATA_DIR: '/var/data', NODE_ENV: 'production' },
+      env: { PORT: '10000', DATABASE_URL: 'postgresql://neon.example/penfight', NODE_ENV: 'production' },
       cwd: '/opt/render/project/src/game-web',
     });
 
     expect(config).toMatchObject({
       port: 10000,
       host: '0.0.0.0',
-      accountDatabase: join(resolve('/opt/render/project/src/game-web', '/var/data'), 'pen-fight.sqlite'),
+      databaseUrl: 'postgresql://neon.example/penfight',
       allowCrossPortOrigin: false,
       secureCookies: true,
     });
+  });
+
+  it('fails clearly when production has no persistent database', () => {
+    expect(() => runtimeConfig({
+      args: ['node', 'server/index.ts', '--production'],
+      env: { NODE_ENV: 'production' },
+    })).toThrow(/DATABASE_URL is required/);
   });
 
   it('keeps local development data local and allows its split ports', () => {
