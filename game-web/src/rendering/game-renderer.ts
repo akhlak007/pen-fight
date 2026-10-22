@@ -1,8 +1,38 @@
 import * as THREE from 'three';
 import type { MatchMode } from '../app/app-state';
 import type { ArenaAction } from '../game/solo-turn-controller';
+import {
+  AIM_DEAD_ZONE_PIXELS,
+  edgeChargePixels,
+  fullPullPixels,
+  isPhonePortrait,
+  MIN_FLICK_PIXELS,
+  pointerAtScreenEdge,
+  shapedFlickPower,
+} from '../game/pen-rules';
 import type { ArenaSnapshot } from '../network/protocol';
 import { createClassroom, type ClassroomScene } from '../scene/classroom';
+import { framePhoneArena } from './arena-camera';
+
+interface DragGesture {
+  point: THREE.Vector3;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  clientX: number;
+  clientY: number;
+  grabShare: number;
+  extra: number;
+  hapticBand: number;
+  pointerType: string;
+}
+
+function viewportSize(canvas: HTMLCanvasElement): { width: number; height: number } {
+  return {
+    width: Math.max(1, canvas.clientWidth),
+    height: Math.max(1, canvas.clientHeight),
+  };
+}
 
 export class GameRenderer {
   readonly #renderer: THREE.WebGLRenderer;
@@ -21,11 +51,21 @@ export class GameRenderer {
   #matchEnabled = false;
   #suspended = false;
   #localPlayer: number | null = null;
-  #dragStart: { point: THREE.Vector3; pointerId: number } | null = null;
+  #dragStart: DragGesture | null = null;
   #keyboardAim: { x: number; y: number } | null = null;
-  #inputListener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null = null;
+  #inputListener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number, spin?: number) => boolean | undefined) | null = null;
   #hitListener: ((intensity: number) => void) | null = null;
   #cameraTrauma = 0;
+  #phoneFrameKey = '';
+  #resizeTimers: number[] = [];
+  #selectedPenId: string | null = null;
+  #selectedDeskId = 'classroom-oak';
+  #remotePenId: string | null = null;
+  readonly #queueResize = (): void => {
+    this.#resize();
+    for (const timer of this.#resizeTimers) window.clearTimeout(timer);
+    this.#resizeTimers = [80, 250, 600].map((delay) => window.setTimeout(() => this.#resize(), delay));
+  };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.#renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -47,6 +87,10 @@ export class GameRenderer {
     this.focusRoom();
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(canvas);
+    window.addEventListener('resize', this.#queueResize);
+    window.addEventListener('orientationchange', this.#queueResize);
+    window.addEventListener('pageshow', this.#queueResize);
+    window.visualViewport?.addEventListener('resize', this.#queueResize);
     this.#timer.connect(document);
     this.#resize();
     canvas.addEventListener('pointerdown', (event) => {
@@ -56,7 +100,18 @@ export class GameRenderer {
       const point = this.#tablePoint(event.clientX, event.clientY);
       if (!point || !this.#classroom.canGrab(this.#raycaster)) return;
       this.#keyboardAim = null;
-      this.#dragStart = { point: point.clone(), pointerId: event.pointerId };
+      this.#dragStart = {
+        point: point.clone(),
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        grabShare: this.#classroom.grabShare(this.#raycaster),
+        extra: 0,
+        hapticBand: 0,
+        pointerType: event.pointerType,
+      };
       canvas.classList.add('is-aiming');
       try {
         canvas.setPointerCapture(event.pointerId);
@@ -66,8 +121,9 @@ export class GameRenderer {
     });
     canvas.addEventListener('pointermove', (event) => {
       if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId || !this.#matchEnabled || this.#suspended) return;
-      const point = this.#tablePoint(event.clientX, event.clientY);
-      if (point) this.#aim(point.x - this.#dragStart.point.x, point.z - this.#dragStart.point.z);
+      this.#dragStart.clientX = event.clientX;
+      this.#dragStart.clientY = event.clientY;
+      this.#applyPointerAim();
     });
     canvas.addEventListener('pointerup', (event) => {
       if (!this.#dragStart || event.pointerId !== this.#dragStart.pointerId) return;
@@ -75,13 +131,11 @@ export class GameRenderer {
         this.#cancelDrag();
         return;
       }
-      const point = this.#tablePoint(event.clientX, event.clientY);
-      const distance = point ? point.distanceTo(this.#dragStart.point) : 0;
-      if (point && distance >= 0.05) {
-        const dx = point.x - this.#dragStart.point.x;
-        const dz = point.z - this.#dragStart.point.z;
-        this.#aim(dx, dz);
-        this.#flick(dx, dz);
+      this.#dragStart.clientX = event.clientX;
+      this.#dragStart.clientY = event.clientY;
+      const pull = this.#screenPull();
+      if (pull >= MIN_FLICK_PIXELS && this.#applyPointerAim()) {
+        this.#flick();
         this.#finishDrag();
       } else {
         this.#cancelDrag();
@@ -136,28 +190,11 @@ export class GameRenderer {
     this.#renderer.setAnimationLoop((time) => {
       this.#timer.update(time);
       const delta = Math.min(this.#timer.getDelta(), 0.05);
-      if (!this.#suspended) this.#classroom.update(time, delta, this.#reducedMotion);
-      if (!this.#reducedMotion) {
-        let shakeX = 0;
-        let shakeY = 0;
-        if (this.#cameraTrauma > 0.001) {
-          const shake = this.#cameraTrauma * this.#cameraTrauma * 0.42;
-          shakeX = Math.sin(time * 0.075) * shake;
-          shakeY = Math.cos(time * 0.095) * shake * 0.5;
-          this.#cameraTrauma = Math.max(0, this.#cameraTrauma - delta * 3.6);
-        }
-        const isP2 = this.#localPlayer === 1;
-        const baseY = this.#matchEnabled ? 20.5 : 21;
-        const baseZ = isP2 ? (this.#matchEnabled ? -17.5 : -18) : (this.#matchEnabled ? 18.5 : 19);
-        const targetZ = isP2 ? 3.6 : -2.8;
-        this.#camera.position.set(
-          Math.sin(time * 0.00008) * 0.38 + shakeX,
-          baseY + shakeY,
-          baseZ,
-        );
-        this.#target.set(0, 1.8, targetZ);
-        this.#camera.lookAt(this.#target);
+      if (!this.#suspended) {
+        this.#classroom.update(time, delta, this.#reducedMotion);
+        this.#chargeEdge(delta);
       }
+      this.#frameCamera(time, delta, !this.#reducedMotion);
       this.#renderer.render(this.#scene, this.#camera);
     });
     this.#frame = 1;
@@ -185,15 +222,32 @@ export class GameRenderer {
   setReplica(value: boolean): void { this.#classroom.setReplica(value); }
   setLocalPlayer(player: number | null): void {
     this.#localPlayer = player;
+    this.#applyCosmetics();
+    this.#phoneFrameKey = '';
     if (this.#matchEnabled) this.focusArena();
   }
-  setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
+  setCosmeticLoadout(penId: string | null, deskId: string, remotePenId: string | null = null): void {
+    this.#selectedPenId = penId;
+    this.#selectedDeskId = deskId;
+    this.#remotePenId = remotePenId;
+    this.#applyCosmetics();
+  }
+
+  #applyCosmetics(): void {
+    const localIndex = this.#localPlayer ?? 0;
+    const remoteIndex = localIndex === 0 ? 1 : 0;
+    const pens: (string | undefined)[] = [];
+    if (this.#selectedPenId) pens[localIndex] = this.#selectedPenId;
+    if (this.#remotePenId) pens[remoteIndex] = this.#remotePenId;
+    this.#classroom.setCosmetics(pens, this.#selectedDeskId);
+  }
+  setInputListener(listener: ((action: 'aim' | 'flick' | 'cancel', x?: number, y?: number, spin?: number) => boolean | undefined) | null): void { this.#inputListener = listener; }
   applyArenaSnapshot(snapshot: ArenaSnapshot): void { this.#classroom.applyArenaSnapshot(snapshot); }
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot { return this.#classroom.getArenaSnapshot(seq, score); }
-  remoteInput(action: 'aim' | 'flick' | 'cancel', x?: number, y?: number): void {
-    if (action === 'aim' && x !== undefined && y !== undefined) this.#classroom.aim(x, y);
+  remoteInput(action: 'aim' | 'flick' | 'cancel', x?: number, y?: number, spin?: number): void {
+    if (action === 'aim' && x !== undefined && y !== undefined) this.#classroom.aim(x, y, spin);
     else if (action === 'flick') {
-      if (x !== undefined && y !== undefined) this.#classroom.aim(x, y);
+      if (x !== undefined && y !== undefined) this.#classroom.aim(x, y, spin);
       this.#classroom.flick();
     }
     else if (action === 'cancel') this.#classroom.cancelAim();
@@ -205,7 +259,9 @@ export class GameRenderer {
   }
   setMatchEnabled(value: boolean): void {
     this.#matchEnabled = value;
+    this.#phoneFrameKey = '';
     this.canvas.style.cursor = value ? 'grab' : 'default';
+    this.#syncPhoneMatch();
     if (!value) {
       this.#cancelDrag();
       this.#classroom.resetPens();
@@ -213,15 +269,7 @@ export class GameRenderer {
   }
 
   focusArena(): void {
-    if (this.#localPlayer === 1) {
-      this.#camera.position.set(0, 20.5, -17.5);
-      this.#target.set(0, 1.8, 3.6);
-      this.#camera.lookAt(this.#target);
-    } else {
-      this.#camera.position.set(0, 20.5, 18.5);
-      this.#target.set(0, 1.8, -2.8);
-      this.#camera.lookAt(this.#target);
-    }
+    this.#frameCamera(0, 0, false);
   }
 
   focusRoom(): void {
@@ -249,12 +297,116 @@ export class GameRenderer {
   }
 
   #resize(): void {
-    const width = Math.max(1, this.canvas.clientWidth);
-    const height = Math.max(1, this.canvas.clientHeight);
+    const { width, height } = viewportSize(this.canvas);
+    this.#phoneFrameKey = '';
     this.#renderer.setSize(width, height, false);
     this.#camera.aspect = width / height;
-    this.#camera.fov = width / height < 0.8 ? 58 : 40;
+    const portrait = this.#matchEnabled && isPhonePortrait(width, height);
+    const isMobileLandscape = this.#matchEnabled && !portrait && height < 500;
+    this.#camera.fov = portrait ? 58 : isMobileLandscape ? 38 : width / height < 0.8 ? 58 : 40;
     this.#camera.updateProjectionMatrix();
+    this.#syncPhoneMatch();
+  }
+
+  #syncPhoneMatch(): void {
+    const portrait = this.#matchEnabled && isPhonePortrait(this.canvas.clientWidth, this.canvas.clientHeight);
+    this.canvas.parentElement?.classList.toggle('is-phone-match', portrait);
+  }
+
+  #frameCamera(time: number, delta: number, drift: boolean): void {
+    let shakeX = 0;
+    let shakeY = 0;
+    if (drift && this.#cameraTrauma > 0.001) {
+      const shake = this.#cameraTrauma * this.#cameraTrauma * 0.42;
+      shakeX = Math.sin(time * 0.075) * shake;
+      shakeY = Math.cos(time * 0.095) * shake * 0.5;
+      this.#cameraTrauma = Math.max(0, this.#cameraTrauma - delta * 3.6);
+    }
+    const isP2 = this.#localPlayer === 1;
+    const { width, height } = viewportSize(this.canvas);
+    const portrait = this.#matchEnabled && isPhonePortrait(width, height);
+    if (portrait) {
+      const frameKey = `${width}x${height}:${isP2 ? 'p2' : 'p1'}`;
+      if (frameKey !== this.#phoneFrameKey) {
+        framePhoneArena(this.#camera, width, height, isP2);
+        this.#phoneFrameKey = frameKey;
+      }
+      return;
+    }
+    this.#phoneFrameKey = '';
+    const isMobileLandscape = this.#matchEnabled && !portrait && height < 500;
+    const baseY = isMobileLandscape ? 17.5 : this.#matchEnabled ? 20.5 : 21;
+    const baseZ = isP2
+      ? (isMobileLandscape ? -15.5 : this.#matchEnabled ? -17.5 : -18)
+      : (isMobileLandscape ? 16.5 : this.#matchEnabled ? 18.5 : 19);
+    const targetZ = isP2
+      ? (isMobileLandscape ? 2.5 : this.#matchEnabled ? -2.8 : -4)
+      : (isMobileLandscape ? -1.8 : this.#matchEnabled ? -2.8 : -4);
+    const sway = drift ? Math.sin(time * 0.00008) * 0.38 : 0;
+    this.#camera.position.set(sway + shakeX, baseY + shakeY, baseZ);
+    this.#target.set(0, this.#matchEnabled ? (isMobileLandscape ? 2.2 : 1.8) : 1.7, targetZ);
+    this.#camera.lookAt(this.#target);
+  }
+
+  #screenPull(): number {
+    if (!this.#dragStart) return 0;
+    return Math.hypot(this.#dragStart.clientX - this.#dragStart.startX, this.#dragStart.clientY - this.#dragStart.startY) + this.#dragStart.extra;
+  }
+
+  #chargeEdge(delta: number): void {
+    const drag = this.#dragStart;
+    if (!drag || !this.#matchEnabled) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const localX = drag.clientX - rect.left;
+    const localY = drag.clientY - rect.top;
+    const deltaX = drag.clientX - drag.startX;
+    const deltaY = drag.clientY - drag.startY;
+    const compact = rect.width <= 600 && isPhonePortrait(rect.width, rect.height);
+    const full = fullPullPixels(Math.min(rect.width, rect.height), compact);
+    const room = Math.max(0, full - Math.hypot(deltaX, deltaY));
+    const next = edgeChargePixels(
+      pointerAtScreenEdge(localX, localY, rect.width, rect.height, deltaX, deltaY),
+      delta,
+      drag.extra,
+      room,
+    );
+    if (next <= drag.extra) return;
+    drag.extra = next;
+    this.#applyPointerAim();
+  }
+
+  #applyPointerAim(): boolean {
+    const drag = this.#dragStart;
+    if (!drag) return false;
+    const pull = this.#screenPull();
+    if (pull < AIM_DEAD_ZONE_PIXELS) {
+      if (!this.#inputListener) this.#classroom.cancelAim();
+      return false;
+    }
+    const point = this.#tablePoint(drag.clientX, drag.clientY);
+    if (!point) return false;
+    const tableX = point.x - drag.point.x;
+    const tableZ = point.z - drag.point.z;
+    const tableLength = Math.hypot(tableX, tableZ);
+    if (tableLength < 0.001) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    const compact = rect.width <= 600 && isPhonePortrait(rect.width, rect.height);
+    const power = shapedFlickPower(
+      pull,
+      fullPullPixels(Math.min(rect.width, rect.height), compact),
+      compact,
+    );
+    const scale = (power * 1.8) / tableLength;
+    this.#buzz(power);
+    return this.#aim(tableX * scale, tableZ * scale, drag.grabShare);
+  }
+
+  #buzz(power: number): void {
+    const drag = this.#dragStart;
+    if (!drag || drag.pointerType !== 'touch') return;
+    const band = Math.floor(power * 4);
+    if (band > drag.hapticBand) navigator.vibrate?.(band >= 4 ? 24 : 8);
+    drag.hapticBand = band;
   }
 
   #tablePoint(clientX: number, clientY: number): THREE.Vector3 | null {
@@ -286,7 +438,20 @@ export class GameRenderer {
     this.#finishDrag();
   }
 
-  #aim(x: number, y: number): boolean { return this.#inputListener?.('aim', x, y) ?? this.#classroom.aim(x, y); }
-  #flick(x?: number, y?: number): boolean { return this.#inputListener?.('flick', x, y) ?? this.#classroom.flick(); }
+  #aim(x: number, y: number, grabShare?: number): boolean {
+    if (this.#inputListener) {
+      const handled = this.#inputListener('aim', x, y, grabShare);
+      if (handled !== undefined) return handled;
+    }
+    return this.#classroom.aim(x, y, grabShare);
+  }
+  #flick(x?: number, y?: number): boolean {
+    const grabShare = this.#dragStart?.grabShare;
+    if (this.#inputListener) {
+      const handled = this.#inputListener('flick', x, y, grabShare);
+      if (handled !== undefined) return handled;
+    }
+    return this.#classroom.flick();
+  }
   #cancelAim(): void { if (!this.#inputListener?.('cancel')) this.#classroom.cancelAim(); }
 }

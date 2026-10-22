@@ -10,9 +10,9 @@ test('mobile touch aiming visual verification', async ({ page }) => {
   await page.waitForTimeout(600);
 
   // Aiming gesture on mobile
-  await page.mouse.move(195, 600);
+  await page.mouse.move(127, 550);
   await page.mouse.down();
-  await page.mouse.move(195, 680, { steps: 5 });
+  await page.mouse.move(127, 650, { steps: 5 });
   await page.waitForTimeout(200);
 
   // Verify flick power meter is active

@@ -1,9 +1,11 @@
 import { MqttRelay } from './mqtt-relay';
 import {
+  parseClientMessage,
   parseServerMessage,
   safeName,
   type ClientMessage,
   type OutgoingSequencedMessage,
+  type PublicProfile,
   type Seat,
   type ServerMessage,
 } from './protocol';
@@ -13,6 +15,7 @@ export interface OnlineState {
   room?: string;
   seat?: Seat;
   players?: readonly [string, string?];
+  profiles?: readonly [PublicProfile, PublicProfile?];
   error?: string;
 }
 
@@ -24,17 +27,26 @@ function generateRoomCode(): string {
   return Array.from(bytes, (byte) => ROOM_CODE_ALPHABET[byte % ROOM_CODE_ALPHABET.length]).join('');
 }
 
+export function shouldUseWebSocket(url: string, configuredUrl = '', forceServer = false): boolean {
+  try {
+    const parsed = new URL(url);
+    const params = parsed.searchParams;
+    if (params.has('relay') || params.has('p2p')) return false;
+    if (configuredUrl || forceServer) return true;
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+export function failedWebSocketAction(type: ClientMessage['type'], configuredUrl = '', forceServer = false): 'relay' | 'retry' {
+  const canStartOnRelay = type === 'create' || type === 'join';
+  return canStartOnRelay && !configuredUrl && !forceServer ? 'relay' : 'retry';
+}
+
 function shouldUseLocalWebSocket(): boolean {
   if (typeof window === 'undefined') return false;
-  try {
-    const params = new URL(location.href).searchParams;
-    if (params.has('relay') || params.has('p2p')) return false;
-  } catch {
-    // Ignore URL parse error
-  }
-  if (import.meta.env.VITE_WS_URL) return true;
-  const hostname = location.hostname;
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  return shouldUseWebSocket(location.href, import.meta.env.VITE_WS_URL, import.meta.env.VITE_WS_MODE === 'server');
 }
 
 function getWebSocketUrl(): URL {
@@ -51,6 +63,7 @@ export class OnlineSession extends EventTarget {
   #socket: WebSocket | null = null;
   #relay: MqttRelay | null = null;
   #hostName = '';
+  #localProfile?: PublicProfile;
   #state: OnlineState = { status: 'idle' };
   #seq = 0;
   #retry?: number;
@@ -73,15 +86,17 @@ export class OnlineSession extends EventTarget {
     }
   }
 
-  create(name: string): void {
+  create(name: string, profile?: PublicProfile): void {
+    this.#localProfile = profile;
     if (shouldUseLocalWebSocket()) {
-      this.#connectWebSocket({ type: 'create', name });
+      this.#connectWebSocket({ type: 'create', name, ...(profile ? { profile } : {}) });
     } else {
-      this.#createRelayRoom(name);
+      this.#createRelayRoom(name, profile);
     }
   }
 
-  join(room: string, name: string): void {
+  join(room: string, name: string, profile?: PublicProfile): void {
+    this.#localProfile = profile;
     const normalized = room.toUpperCase();
     if (shouldUseLocalWebSocket()) {
       const stored =
@@ -90,10 +105,10 @@ export class OnlineSession extends EventTarget {
       this.#connectWebSocket(
         stored
           ? { type: 'resume', room: normalized, token: stored }
-          : { type: 'join', room: normalized, name },
+          : { type: 'join', room: normalized, name, ...(profile ? { profile } : {}) },
       );
     } else {
-      this.#joinRelayRoom(normalized, name);
+      this.#joinRelayRoom(normalized, name, profile);
     }
   }
 
@@ -163,14 +178,21 @@ export class OnlineSession extends EventTarget {
     socket.addEventListener('close', () => {
       if (this.#socket !== socket || this.#state.status === 'idle') return;
 
-      // If local dev server is not running, fall back seamlessly to global relay
-      if (!opened && !import.meta.env.VITE_WS_URL) {
+      const failedAction = failedWebSocketAction(first.type, import.meta.env.VITE_WS_URL, import.meta.env.VITE_WS_MODE === 'server');
+      // Static/local builds may fall back for a new room; dedicated deployments stay on their own server.
+      if (!opened && failedAction === 'relay') {
         this.#socket = null;
         if (first.type === 'create') {
-          this.#createRelayRoom(first.name);
+          this.#createRelayRoom(first.name, first.profile);
         } else if (first.type === 'join') {
-          this.#joinRelayRoom(first.room, first.name);
+          this.#joinRelayRoom(first.room, first.name, first.profile);
         }
+        return;
+      }
+      if (!opened) {
+        this.#socket = null;
+        this.#set({ ...this.#state, status: first.type === 'resume' ? 'reconnecting' : 'connecting' });
+        this.#retry = window.setTimeout(() => this.#connectWebSocket(first), 800);
         return;
       }
 
@@ -189,7 +211,7 @@ export class OnlineSession extends EventTarget {
     });
   }
 
-  #createRelayRoom(name: string): void {
+  #createRelayRoom(name: string, profile?: PublicProfile): void {
     this.#cleanup();
     const room = generateRoomCode();
     this.#hostName = safeName(name) || 'Player 1';
@@ -201,6 +223,7 @@ export class OnlineSession extends EventTarget {
       room,
       seat: 'host',
       players: [this.#hostName],
+      ...(profile ? { profiles: [profile] } : {}),
     });
 
     const relay = new MqttRelay();
@@ -214,10 +237,10 @@ export class OnlineSession extends EventTarget {
 
     relay.onMessage = (topic, raw) => {
       if (topic !== hostTopic) return;
-      try {
-        const data = JSON.parse(raw);
-        if (data.type === 'join' && typeof data.name === 'string') {
+      const data = parseClientMessage(raw);
+      if (data?.type === 'join') {
           const guestName = safeName(data.name) || 'Player 2';
+          const guestProfile = data.profile;
           // Send joined acknowledgment to guest
           const joinedMsg: ServerMessage = {
             type: 'joined',
@@ -225,6 +248,7 @@ export class OnlineSession extends EventTarget {
             seat: 'guest',
             token: 'relay-guest',
             players: [this.#hostName, guestName],
+            ...(profile ? { profiles: guestProfile ? [profile, guestProfile] : [profile] } : {}),
           };
           relay.publish(guestTopic, JSON.stringify(joinedMsg));
 
@@ -234,17 +258,15 @@ export class OnlineSession extends EventTarget {
             room,
             seat: 'host',
             players: [this.#hostName, guestName],
+            ...(profile ? { profiles: guestProfile ? [profile, guestProfile] : [profile] } : {}),
           });
 
           this.dispatchEvent(
             new CustomEvent<ServerMessage>('message', {
-              detail: { type: 'peer', connected: true, name: guestName },
+              detail: { type: 'peer', connected: true, name: guestName, ...(guestProfile ? { profile: guestProfile } : {}) },
             }),
           );
           return;
-        }
-      } catch {
-        // Ignore JSON error
       }
 
       this.#message(raw);
@@ -266,7 +288,7 @@ export class OnlineSession extends EventTarget {
     relay.connect(`pf-h-${room.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`);
   }
 
-  #joinRelayRoom(room: string, name: string): void {
+  #joinRelayRoom(room: string, name: string, profile?: PublicProfile): void {
     this.#cleanup();
     const guestName = safeName(name) || 'Player 2';
     this.#set({ status: 'connecting', room });
@@ -289,6 +311,7 @@ export class OnlineSession extends EventTarget {
               type: 'join',
               room,
               name: guestName,
+              ...(profile ? { profile } : {}),
             }),
           );
         }
@@ -339,7 +362,7 @@ export class OnlineSession extends EventTarget {
     }
     if (message.type === 'created') {
       sessionStorage.setItem(`pen-fight:${message.room}:host`, message.token);
-      this.#set({ status: 'waiting', room: message.room, seat: 'host', players: [''] });
+      this.#set({ status: 'waiting', room: message.room, seat: 'host', players: [''], ...(this.#localProfile ? { profiles: [this.#localProfile] } : {}) });
       return;
     }
     if (message.type === 'joined') {
@@ -349,6 +372,7 @@ export class OnlineSession extends EventTarget {
         room: message.room,
         seat: message.seat,
         players: message.players,
+        ...(message.profiles ? { profiles: message.profiles } : {}),
       });
       return;
     }
@@ -357,7 +381,13 @@ export class OnlineSession extends EventTarget {
         message.connected && message.name
           ? ([this.#state.players?.[0] ?? '', message.name] as const)
           : this.#state.players;
-      this.#set({ ...this.#state, status: message.connected ? 'ready' : 'reconnecting', players });
+      let profiles = this.#state.profiles;
+      if (message.connected && message.profile) {
+        profiles = this.#state.seat === 'guest'
+          ? [message.profile, this.#localProfile]
+          : [this.#localProfile ?? this.#state.profiles?.[0] ?? message.profile, message.profile];
+      }
+      this.#set({ ...this.#state, status: message.connected ? 'ready' : 'reconnecting', players, ...(profiles ? { profiles } : {}) });
     }
     this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
   }

@@ -8,16 +8,34 @@ vi.mock('./textures', () => ({
 }));
 
 import { createClassroom } from './classroom';
+import { type DeskWorld, startDeskWorld } from '../game/desk-physics';
 
 describe('classroom aiming preview', () => {
   let scene: ReturnType<typeof createClassroom>;
   let playerPen: THREE.Object3D;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     scene = createClassroom();
+    await scene.ready;
     const candidate = scene.heroPens.children[0];
     if (!candidate) throw new Error('Player pen was not created.');
     playerPen = candidate;
+  });
+
+  it('spins a tip grab and leaves a center grab straight', async () => {
+    scene.setMatchMode('practice');
+    expect(scene.aim(0, 1.2, 1)).toBe(true);
+    expect(scene.flick()).toBe(true);
+    const spun = playerPen.rotation.y;
+    scene.update(0, 0.05, true);
+    expect(playerPen.rotation.y).not.toBeCloseTo(spun, 3);
+
+    scene.setMatchMode('practice');
+    const settled = playerPen.rotation.y;
+    expect(scene.aim(0, 1.2, 0)).toBe(true);
+    expect(scene.flick()).toBe(true);
+    scene.update(0, 0.05, true);
+    expect(playerPen.rotation.y).toBeCloseTo(settled, 2);
   });
 
   it('keeps the player pen position and rotation fixed while targeting', () => {
@@ -114,5 +132,44 @@ describe('classroom aiming preview', () => {
     expect(actions).not.toContain('aiMoving');
     expect(actions).toContain('playerMoving');
     expect(actions).toContain('ready');
+  });
+
+  it('defers a late Rapier handoff until the fallback shot finishes', async () => {
+    const world = await startDeskWorld();
+    let resolveWorld!: (value: DeskWorld) => void;
+    const delayedWorld = new Promise<DeskWorld>((resolve) => { resolveWorld = resolve; });
+    scene = createClassroom(() => delayedWorld);
+    const pen = scene.heroPens.children[0];
+    if (!pen) throw new Error('Player pen was not created.');
+
+    scene.setMatchMode('practice');
+    scene.aim(0, 1.2);
+    scene.flick();
+    scene.update(0, 0.05, true);
+    const beforeHandoff = pen.position.clone();
+
+    resolveWorld(world);
+    await scene.ready;
+    scene.update(50, 0.05, true);
+
+    expect(Math.hypot(
+      pen.position.x - beforeHandoff.x,
+      pen.position.z - beforeHandoff.z,
+    )).toBeGreaterThan(0.01);
+  });
+
+  it('does not start an automatic fall while waiting for a shot', async () => {
+    const world = await startDeskWorld();
+    vi.spyOn(world, 'isOut').mockReturnValue(true);
+    scene = createClassroom(() => Promise.resolve(world));
+    await scene.ready;
+    scene.setMatchMode('practice');
+    const actions: string[] = [];
+    scene.setActionListener((action) => actions.push(action));
+
+    scene.update(0, 1 / 60, true);
+
+    expect(actions).not.toContain('roundReset');
+    expect(scene.getArenaSnapshot(1, [0, 0]).phase).toBe('player');
   });
 });

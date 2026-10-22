@@ -2,19 +2,23 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { MatchMode } from '../app/app-state';
 import type { ArenaSnapshot } from '../network/protocol';
+import { DeskWorld, DESK_TOP, impulseMagnitude, PEN_HALF_LENGTH, PEN_RADIUS, powerForImpulse, startDeskWorld } from '../game/desk-physics';
 import { type ArenaAction, SoloTurnController } from '../game/solo-turn-controller';
 import {
   AI_CORNER,
   assistedDirection,
   capsuleContact,
+  axialShotEfficiency,
   computeFlickAim,
+  grabSpinShare,
   knockoutWinner,
+  spinFromGrab,
   penHasFallen,
   PLAYER_CORNER,
   resolveEqualMassCollision,
-  TABLE_BOUNDS,
 } from '../game/pen-rules';
 import { createBlackboardTexture, createTileTexture, createWoodTexture } from './textures';
+import { deskById, penById } from '../profile/profile-catalog';
 
 const woodGeometry = new RoundedBoxGeometry(5.8, 0.34, 2.2, 3, 0.1);
 const benchGeometry = new RoundedBoxGeometry(5.5, 0.3, 0.78, 3, 0.08);
@@ -61,16 +65,18 @@ function createPen(color = '#137cd1'): THREE.Group {
     color,
     roughness: 0.2,
     metalness: 0.06,
-    transmission: 0.18,
-    transparent: true,
-    opacity: 0.94,
+    transmission: 0,
+    transparent: false,
+    opacity: 1,
     clearcoat: 1,
     clearcoatRoughness: 0.12,
   });
   const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3.35, 18), barrelMaterial);
+  barrel.name = 'pen-cosmetic-barrel';
   barrel.rotation.z = Math.PI / 2;
   penVisual.add(barrel);
   const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.72, 18), new THREE.MeshStandardMaterial({ color: '#e4f3ff', roughness: 0.48 }));
+  grip.name = 'pen-cosmetic-grip';
   grip.rotation.z = Math.PI / 2;
   grip.position.x = 1.45;
   penVisual.add(grip);
@@ -199,8 +205,9 @@ export interface ClassroomScene {
   readonly activePlayer: number;
   updateBoard(playerName: string, opponentName?: string, score?: readonly number[]): void;
   update(time: number, delta: number, reducedMotion: boolean): void;
-  aim(deltaX: number, deltaY: number): boolean;
+  aim(deltaX: number, deltaY: number, grabShare?: number): boolean;
   flick(): boolean;
+  grabShare(raycaster: THREE.Raycaster): number;
   cancelAim(): void;
   resetPens(): void;
   canGrab(raycaster: THREE.Raycaster): boolean;
@@ -214,10 +221,14 @@ export interface ClassroomScene {
   getArenaSnapshot(seq: number, score: readonly number[]): ArenaSnapshot;
   applyArenaSnapshot(snapshot: ArenaSnapshot): void;
   setReplica(value: boolean): void;
+  setCosmetics(penIds: readonly (string | undefined)[], deskId: string): void;
   isPenMoving(): boolean;
+  readonly ready: Promise<void>;
 }
 
-export function createClassroom(): ClassroomScene {
+export function createClassroom(
+  startPhysics: () => Promise<DeskWorld> = startDeskWorld,
+): ClassroomScene {
   const group = new THREE.Group();
   let replica = false;
   const r3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -302,14 +313,15 @@ export function createClassroom(): ClassroomScene {
   const green = createPen(PEN_COLORS[2]);
   const gold = createPen(PEN_COLORS[3]);
   const pens: readonly [THREE.Group, THREE.Group, THREE.Group, THREE.Group] = [blue, red, green, gold];
+  const defaultPenIds = ['classic-blue', 'red-comet', 'mint-strike', 'sunset-orange'] as const;
   blue.rotation.y = 1.08;
   blue.position.set(PLAYER_CORNER.x, 2.62, PLAYER_CORNER.z);
   red.rotation.y = -2.05;
-  red.position.set(AI_CORNER.x, 2.64, AI_CORNER.z);
+  red.position.set(AI_CORNER.x, 2.62, AI_CORNER.z);
   green.rotation.y = -1.08;
   green.position.set(-2.8, 2.62, -4.0);
   gold.rotation.y = 2.05;
-  gold.position.set(2.8, 2.64, 4.6);
+  gold.position.set(2.8, 2.62, 4.6);
   green.visible = false;
   gold.visible = false;
   heroPens.add(...pens);
@@ -331,6 +343,24 @@ export function createClassroom(): ClassroomScene {
   let matchMode: MatchMode = 'quick';
   let shotAngle = 1.08;
   let aimPower = 0;
+  let shotSpin = 0;
+  let shotStrike = 0;
+  let shotEfficiency = 1;
+  let shotShaped = false;
+  let desk: DeskWorld | null = null;
+  let pendingDesk: DeskWorld | null = null;
+  const activatePendingDesk = () => {
+    if (desk || !pendingDesk) return;
+    desk = pendingDesk;
+    pendingDesk = null;
+    desk.sync(pens, activePlayerCount);
+  };
+  const ready = startPhysics().then((world) => {
+    pendingDesk = world;
+    if (turns.phase === 'player' && !aimActive && !falling) activatePendingDesk();
+  }).catch((error: unknown) => {
+    console.error('Desk physics failed to start', error);
+  });
   const aimOrigin = blue.position.clone();
   let aimOriginAngle = blue.rotation.y;
   let aimActive = false;
@@ -596,7 +626,7 @@ export function createClassroom(): ClassroomScene {
         : START_LAYOUTS_2P[roundIndex % START_LAYOUTS_2P.length]) ?? START_LAYOUTS_2P[0]!;
 
       blue.position.set(layout.blue.x, 2.62, layout.blue.z);
-      red.position.set(layout.red.x, 2.64, layout.red.z);
+      red.position.set(layout.red.x, 2.62, layout.red.z);
       blue.rotation.set(0, layout.blue.angle, 0);
       red.rotation.set(0, layout.red.angle, 0);
       blue.visible = true;
@@ -611,7 +641,7 @@ export function createClassroom(): ClassroomScene {
         if (i < activePlayerCount) {
           const cfg = layout[i];
           if (cfg) {
-            pen.position.set(cfg.x, 2.62 + i * 0.01, cfg.z);
+            pen.position.set(cfg.x, 2.62, cfg.z);
             pen.rotation.set(0, cfg.angle, 0);
           }
           pen.visible = true;
@@ -642,6 +672,8 @@ export function createClassroom(): ClassroomScene {
     impactStar.visible = false;
     starTimer = 0;
     for (const s of sparks) { s.active = false; s.mesh.visible = false; }
+    activatePendingDesk();
+    desk?.sync(pens, activePlayerCount);
   }
 
   function launchAi(time: number): void {
@@ -652,8 +684,13 @@ export function createClassroom(): ClassroomScene {
     const distance = Math.hypot(dx, dz);
     const strength = THREE.MathUtils.clamp(distance * 1.15 + 1.2, 4.2, 11.2);
     red.rotation.y = angle;
-    redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
-    penAngularVelocities[1] = error * 1.8;
+    if (desk) {
+      desk.syncPen(1, red);
+      desk.strike(1, THREE.MathUtils.clamp(error * 4, -0.85, 0.85), Math.cos(angle), -Math.sin(angle), powerForImpulse(strength, 1));
+    } else {
+      redVelocity.set(Math.cos(angle) * strength, -Math.sin(angle) * strength);
+      penAngularVelocities[1] = error * 1.8;
+    }
     actionListener('aiMoving');
     turnListener(1);
   }
@@ -681,12 +718,6 @@ export function createClassroom(): ClassroomScene {
 
   function activeHumanVelocity(): THREE.Vector2 {
     return penVelocities[turns.activePlayer] ?? blueVelocity;
-  }
-
-  function stopActiveHumanSpin(): void {
-    if (penAngularVelocities[turns.activePlayer] !== undefined) {
-      penAngularVelocities[turns.activePlayer] = 0;
-    }
   }
 
   return {
@@ -782,23 +813,59 @@ export function createClassroom(): ClassroomScene {
         targetRing.scale.setScalar(tRingPulse);
       }
 
+      const simulated = Boolean(desk) && !replica;
+      let physicsMotion = 0;
+      let physicsSettled = false;
+      const shotActive = turns.phase === 'playerMoving' || turns.phase === 'aiMoving';
+      if (simulated && desk) {
+        if (shotActive) {
+          const step = desk.step(delta);
+          physicsMotion = step.totalMotion;
+          physicsSettled = step.settled;
+          desk.applyPoses(pens, activePlayerCount);
+        for (const hit of step.hits) {
+          const normal = new THREE.Vector2(1, 0);
+          shockwave.position.set(hit.x, 2.585, hit.z);
+          shockwave.scale.setScalar(0.4);
+          shockwave.visible = true;
+          shockwaveTimer = 0.35;
+          (shockwave.material as THREE.MeshBasicMaterial).opacity = 0.95;
+          impactStar.position.set(hit.x, 2.61, hit.z);
+          impactStar.rotation.z = Math.random() * Math.PI;
+          impactStar.scale.setScalar(1.5);
+          impactStar.visible = true;
+          starTimer = 0.22;
+          (impactStar.material as THREE.MeshBasicMaterial).opacity = 1;
+          spawnHitSparks(hit.x, hit.z, normal, hit.strength);
+          playPenClackSound(hit.strength);
+          hitListener(hit.strength);
+        }
+        } else {
+          physicsSettled = true;
+          physicsMotion = 0;
+        }
+      }
       for (let i = 0; i < activePlayerCount; i++) {
         const pen = pens[i];
         const velocity = penVelocities[i];
-        if (!pen || !velocity || !pen.visible || turns.isEliminated(i)) continue;
+        if (!pen || !velocity || !pen.visible || turns.isEliminated(i) || simulated) continue;
         pen.position.x += velocity.x * delta;
         pen.position.z += velocity.y * delta;
         velocity.multiplyScalar(Math.exp(-2.05 * delta));
         pen.rotation.y += (penAngularVelocities[i] ?? 0) * delta;
         penAngularVelocities[i] = (penAngularVelocities[i] ?? 0) * Math.exp(-2.35 * delta);
+        if (velocity.length() < 0.28) {
+          velocity.set(0, 0);
+          penAngularVelocities[i] = 0;
+        }
 
         const wobble = penWobbles[i] ?? 0;
         if (wobble > 0.001) {
-          pen.position.y = (2.62 + i * 0.01) + Math.abs(Math.sin(time * 0.04)) * wobble;
+          pen.position.y = 2.62 + Math.abs(Math.sin(time * 0.04)) * wobble;
           pen.rotation.z += Math.sin(time * 0.05) * wobble * 0.4;
           penWobbles[i] = Math.max(0, wobble - delta * 0.85);
         } else {
-          pen.position.y = 2.62 + i * 0.01;
+          pen.position.y = 2.62;
           pen.rotation.z = 0;
         }
       }
@@ -806,7 +873,7 @@ export function createClassroom(): ClassroomScene {
       for (let i = 0; i < activePlayerCount; i++) {
         const pI = pens[i];
         const vI = penVelocities[i];
-        if (!pI || !vI || turns.isEliminated(i) || !pI.visible) continue;
+        if (!pI || !vI || turns.isEliminated(i) || !pI.visible || simulated) continue;
         for (let j = i + 1; j < activePlayerCount; j++) {
           const pJ = pens[j];
           const vJ = penVelocities[j];
@@ -814,7 +881,7 @@ export function createClassroom(): ClassroomScene {
           const contact = capsuleContact(
             { x: pI.position.x, y: pI.position.z }, pI.rotation.y,
             { x: pJ.position.x, y: pJ.position.z }, pJ.rotation.y,
-            1.4, 0.16,
+            PEN_HALF_LENGTH, PEN_RADIUS,
           );
           if (contact) {
             const normal = new THREE.Vector2(contact.normal.x, contact.normal.y);
@@ -910,14 +977,21 @@ export function createClassroom(): ClassroomScene {
         (spark.mesh.material as THREE.MeshBasicMaterial).opacity = Math.min(1, sparkRatio * 1.4);
       }
 
-      if (activePlayerCount === 2) {
-        const blueOut = penHasFallen(blue.position.x, blue.position.z, blue.rotation.y, 1.4);
-        const redOut = penHasFallen(red.position.x, red.position.z, red.rotation.y, 1.4);
+      const shotIsResolving = turns.phase === 'playerMoving' || turns.phase === 'aiMoving';
+      if (activePlayerCount === 2 && shotIsResolving) {
+        const blueOut = simulated && desk
+          ? desk.isOut(0)
+          : blue.position.y < DESK_TOP - 0.2 || penHasFallen(blue.position.x, blue.position.z, blue.rotation.y, PEN_HALF_LENGTH);
+        const redOut = simulated && desk
+          ? desk.isOut(1)
+          : red.position.y < DESK_TOP - 0.2 || penHasFallen(red.position.x, red.position.z, red.rotation.y, PEN_HALF_LENGTH);
         const winner = knockoutWinner(blueOut, redOut);
         if (winner !== null) {
+          const fallenIndices = winner === 'draw' ? [0, 1] : [winner === 0 ? 1 : 0];
           falling = winner === 'draw'
             ? { pens: [blue, red], winner: null, elapsed: 0, scored: false }
             : { pens: [winner === 0 ? red : blue], winner, elapsed: 0, scored: false };
+          for (const index of fallenIndices) desk?.release(index);
           actionListener('roundReset');
           roundListener(
             winner === 'draw'
@@ -938,12 +1012,15 @@ export function createClassroom(): ClassroomScene {
           turns.startFall();
           return;
         }
-      } else {
+      } else if (activePlayerCount > 2 && shotIsResolving) {
         const newlyFallen: number[] = [];
         for (let i = 0; i < activePlayerCount; i++) {
           const pen = pens[i];
           if (!pen || turns.isEliminated(i) || !pen.visible) continue;
-          if (penHasFallen(pen.position.x, pen.position.z, pen.rotation.y, 1.4)) {
+          const out = simulated && desk
+            ? desk.isOut(i)
+            : pen.position.y < DESK_TOP - 0.2 || penHasFallen(pen.position.x, pen.position.z, pen.rotation.y, PEN_HALF_LENGTH);
+          if (out) {
             turns.eliminatePlayer(i);
             newlyFallen.push(i);
           }
@@ -958,6 +1035,7 @@ export function createClassroom(): ClassroomScene {
               elapsed: 0,
               scored: false,
             };
+            for (const index of newlyFallen) desk?.release(index);
             actionListener('roundReset');
             roundListener(
               winner === null
@@ -980,17 +1058,24 @@ export function createClassroom(): ClassroomScene {
               const p = pens[idx];
               if (p) p.position.y = -5;
               penVelocities[idx]?.set(0, 0);
+              desk?.release(idx);
             }
           }
         }
       }
 
       let totalSpeed = 0;
-      for (let i = 0; i < activePlayerCount; i++) {
-        const p = pens[i];
-        const v = penVelocities[i];
-        if (p && v && p.visible && !turns.isEliminated(i)) {
-          totalSpeed += v.length();
+      if (simulated && desk) {
+        desk.copyMotion(penVelocities, penAngularVelocities);
+        totalSpeed = physicsSettled ? 0 : physicsMotion;
+      }
+      else {
+        for (let i = 0; i < activePlayerCount; i++) {
+          const p = pens[i];
+          const v = penVelocities[i];
+          if (p && v && p.visible && !turns.isEliminated(i)) {
+            totalSpeed += v.length();
+          }
         }
       }
 
@@ -1007,11 +1092,14 @@ export function createClassroom(): ClassroomScene {
           penVelocities[i]?.set(0, 0);
           penAngularVelocities[i] = 0;
         }
+        activatePendingDesk();
+        desk?.sleepPens();
+        desk?.applyPoses(pens, activePlayerCount);
         turnListener(turns.activePlayer);
         actionListener('ready');
       }
     },
-    aim(deltaX: number, deltaY: number) {
+    aim(deltaX: number, deltaY: number, grabShare?: number) {
       if (turns.phase !== 'player') return false;
       const pen = activeHumanPen();
       const opponent = inactiveHumanPen();
@@ -1022,6 +1110,18 @@ export function createClassroom(): ClassroomScene {
         actionListener('aiming');
       }
       const aim = computeFlickAim(deltaX, deltaY, 1.8);
+      if (grabShare === undefined) {
+        shotSpin = 0;
+        shotStrike = 0;
+        shotEfficiency = 1;
+        shotShaped = false;
+      } else {
+        const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(pen.quaternion);
+        shotEfficiency = axialShotEfficiency(deltaX, deltaY, forward.x, forward.z);
+        shotStrike = grabShare;
+        shotSpin = spinFromGrab(grabShare, aim.power);
+        shotShaped = true;
+      }
       const assisted = assistedDirection(
         aim.direction,
         {
@@ -1082,7 +1182,7 @@ export function createClassroom(): ClassroomScene {
     flick() {
       if (turns.phase !== 'player') return false;
       const pen = activeHumanPen();
-      if (aimPower < 0.03) {
+      if (aimPower <= 0) {
         if (aimActive) {
           pen.position.copy(aimOrigin);
           pen.rotation.y = aimOriginAngle;
@@ -1098,10 +1198,21 @@ export function createClassroom(): ClassroomScene {
         return false;
       }
       if (!turns.playerFlicked()) return false;
-      const strength = THREE.MathUtils.lerp(4.8, 15.6, Math.pow(aimPower, 0.7));
-      activeHumanVelocity().set(Math.cos(shotAngle) * strength, -Math.sin(shotAngle) * strength);
+      const curve = shotShaped ? aimPower : Math.pow(aimPower, 0.7);
+      const strength = impulseMagnitude(curve * shotEfficiency, 1);
       pen.position.copy(aimOrigin);
-      stopActiveHumanSpin();
+      pen.rotation.y = aimOriginAngle;
+      activatePendingDesk();
+      if (desk) {
+        desk.strike(turns.activePlayer, shotStrike, Math.cos(shotAngle), -Math.sin(shotAngle), curve * shotEfficiency);
+      } else {
+        activeHumanVelocity().set(Math.cos(shotAngle) * strength, -Math.sin(shotAngle) * strength);
+        penAngularVelocities[turns.activePlayer] = shotSpin;
+      }
+      shotSpin = 0;
+      shotStrike = 0;
+      shotEfficiency = 1;
+      shotShaped = false;
       aimActive = false;
       aimPower = 0;
       aimListener(0);
@@ -1119,12 +1230,25 @@ export function createClassroom(): ClassroomScene {
       pen.rotation.y = aimOriginAngle;
       aimActive = false;
       aimPower = 0;
+      shotSpin = 0;
+      shotStrike = 0;
+      shotEfficiency = 1;
+      shotShaped = false;
       aimListener(0);
       aimLine.visible = false;
       aimHead.visible = false;
       for (const dot of aimDots) dot.visible = false;
       targetRing.visible = false;
       actionListener('ready');
+    },
+    grabShare(raycaster: THREE.Raycaster) {
+      if (turns.phase !== 'player') return 0;
+      const pen = activeHumanPen();
+      const hits = raycaster.intersectObject(pen, true);
+      const hit = hits.find((item) => item.object.name === 'pen-pickup-target') ?? hits[0];
+      if (!hit) return 0;
+      const local = pen.worldToLocal(hit.point.clone());
+      return grabSpinShare(local.x, PEN_HALF_LENGTH);
     },
     resetPens() {
       falling = null;
@@ -1136,17 +1260,7 @@ export function createClassroom(): ClassroomScene {
     },
     canGrab(raycaster: THREE.Raycaster) {
       if (turns.phase !== 'player') return false;
-      const pen = activeHumanPen();
-      if (raycaster.intersectObject(pen, true).length > 0) return true;
-      const scratch = new THREE.Vector3();
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2.58);
-      const hit = raycaster.ray.intersectPlane(plane, scratch);
-      if (!hit) return false;
-      const distToActive = Math.hypot(hit.x - pen.position.x, hit.z - pen.position.z);
-      if (distToActive <= 7.5) return true;
-      const onTable = Math.abs(hit.x) <= TABLE_BOUNDS.halfWidth + 1.2 &&
-                      Math.abs(hit.z - TABLE_BOUNDS.centerZ) <= TABLE_BOUNDS.halfDepth + 1.2;
-      return onTable;
+      return raycaster.intersectObject(activeHumanPen(), true).length > 0;
     },
     setFallListener(listener: (winner: number) => void) {
       fallListener = listener;
@@ -1269,6 +1383,28 @@ export function createClassroom(): ClassroomScene {
         replicaTargets[1]!.active = false;
       }
     },
+    setCosmetics(penIds, deskId) {
+      for (let index = 0; index < pens.length; index += 1) {
+        const pen = pens[index];
+        if (!pen) continue;
+        const cosmetic = penById(penIds[index] ?? defaultPenIds[index] ?? 'classic-blue');
+        const barrel = pen.getObjectByName('pen-cosmetic-barrel') as THREE.Mesh | undefined;
+        const grip = pen.getObjectByName('pen-cosmetic-grip') as THREE.Mesh | undefined;
+        const barrelMaterial = barrel?.material as THREE.MeshPhysicalMaterial | undefined;
+        const gripMaterial = grip?.material as THREE.MeshStandardMaterial | undefined;
+        barrelMaterial?.color.set(cosmetic.primary);
+        if (barrelMaterial) {
+          barrelMaterial.metalness = cosmetic.metalness;
+          barrelMaterial.roughness = cosmetic.roughness;
+        }
+        gripMaterial?.color.set(cosmetic.accent);
+      }
+      const deskCosmetic = deskById(deskId);
+      arenaWood.color.set(deskCosmetic.surface);
+      wood.color.set(deskCosmetic.trim);
+      (backWall.material as THREE.MeshStandardMaterial).color.set(deskCosmetic.room);
+    },
+    ready,
     isPenMoving() {
       return (
         Boolean(falling) ||

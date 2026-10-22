@@ -2,6 +2,10 @@ import type { AppState } from '../app/app-state';
 import type { AppStore } from '../app/app-store';
 import type { ArenaAction } from '../game/solo-turn-controller';
 import type { OnlineState } from '../network/online-session';
+import type { AccountState } from '../account/account-client';
+import type { LeaderboardPage } from '../account/account-types';
+import { AVATARS, DESKS, FLAG_CODES, PENS, avatarById, flagEmoji, itemUnlocked } from '../profile/profile-catalog';
+import { progressForXp, titleForLevel } from '../profile/progression';
 
 export interface UiActions {
   onSaveName(name: string): void;
@@ -14,6 +18,17 @@ export interface UiActions {
   onBack(): void;
   onChooseMode(mode: 'quick' | 'practice'): void;
   onEditName(): void;
+  onOpenProfile(): void;
+  onOpenAccount(): void;
+  onOpenLeaderboard(): void;
+  onSignup(username: string, password: string): Promise<void>;
+  onLogin(username: string, password: string): Promise<void>;
+  onLogout(): Promise<void>;
+  onLoadMoreLeaderboard(): void;
+  onSetAvatar(avatarId: string): void;
+  onSetFlag(flagCode: string): void;
+  onEquipPen(penId: string): void;
+  onEquipDesk(deskId: string): void;
   onToggleReducedMotion(value: boolean): void;
   onToggleAmbience(value: boolean): void;
   onRematch(): void;
@@ -37,9 +52,17 @@ function scorePips(score: number): string {
   ).join('');
 }
 
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 function arenaStatus(action: ArenaAction, readyTitle: string, readyHint: string): readonly [string, string] {
   switch (action) {
-    case 'aiming': return ['AIMING', 'Pull back for power · release to flick'];
+    case 'aiming': return ['AIMING', 'Pull back for power · grab a tip to spin'];
     case 'playerMoving': return ['SHOT IN MOTION', 'Pens are moving · next turn soon'];
     case 'aiWaiting': return ['RIVAL IS LINING UP', 'Stay sharp'];
     case 'aiMoving': return ['RIVAL SHOT IN MOTION', 'Watch the table edge'];
@@ -57,6 +80,9 @@ export class UiRoot {
   #nameDraft: string | null = null;
   #online: OnlineState = { status: 'idle' };
   #pendingInvite: string | null = null;
+  #friendSetupMode: 'local' | 'online' = 'local';
+  #account: AccountState = { status: 'checking' };
+  #leaderboard: { loading: boolean; page?: LeaderboardPage; error?: string } = { loading: false };
   #state!: AppState;
 
   constructor(store: AppStore, private readonly actions: UiActions) {
@@ -66,6 +92,16 @@ export class UiRoot {
     this.#unsubscribe = store.subscribe((state) => { this.#state = state; this.render(state); });
     this.#state = store.snapshot;
     this.render(store.snapshot);
+  }
+
+  setAccountState(state: AccountState): void {
+    this.#account = state;
+    if (this.#state.phase === 'home' || this.#state.phase === 'account' || this.#state.phase === 'profile') this.render(this.#state);
+  }
+
+  setLeaderboardState(state: { loading: boolean; page?: LeaderboardPage; error?: string }): void {
+    this.#leaderboard = state;
+    if (this.#state.phase === 'leaderboard') this.render(this.#state);
   }
 
   render(state: AppState): void {
@@ -85,6 +121,12 @@ export class UiRoot {
       const hasName = Boolean(state.player.name);
       const displayName = hasName ? state.player.name.toUpperCase() : 'NEW PLAYER';
       const inputValue = this.#nameDraft ?? state.player.name;
+      const homeProgress = progressForXp(state.profile.xp);
+      const homeAvatar = avatarById(state.profile.avatarId);
+      const isUnlocked = (item: { readonly id: string; readonly unlockLevel: number }) =>
+        itemUnlocked(item.unlockLevel, homeProgress.level) || state.profile.unlockedCosmeticIds.includes(item.id);
+      const unlockedPenCount = PENS.filter(isUnlocked).length;
+      const unlockedDeskCount = DESKS.filter(isUnlocked).length;
       this.#layer.innerHTML = `
         <!-- Classroom Desk Header Bar -->
         <header class="desk-top-bar" aria-label="Classroom navigation">
@@ -94,7 +136,7 @@ export class UiRoot {
           </div>
           <div class="top-nav-actions">
             <button type="button" class="nav-text-btn" data-action="community">Community</button>
-            <button type="button" class="nav-pill-btn" data-action="signin">SIGN IN</button>
+            <button type="button" class="nav-pill-btn" data-action="signin">${this.#account.status === 'authenticated' ? escapeText(this.#account.account?.username ?? 'ACCOUNT') : 'SIGN IN'}</button>
             <button type="button" class="nav-menu-btn" data-action="menu" aria-label="Menu">
               <i></i><i></i><i></i>
             </button>
@@ -112,13 +154,33 @@ export class UiRoot {
 
               <section class="player-intro">
                 <h1 id="home-title" class="home-main-title ${hasName ? 'sr-only' : ''}">Welcome to Pen Fight</h1>
-                <div class="player-title-row">
-                  <strong class="player-display">${escapeText(displayName)}</strong>
-                  ${hasName ? '<button type="button" class="edit-name-pen" aria-label="Edit name" title="Change name">✎</button>' : ''}
-                </div>
-                <div class="player-journey-subline">
-                  <span>2 of 12 pens · </span><span class="trimax-red">10 to the Trimax</span>
-                </div>
+                ${hasName ? `
+                  <div class="home-passport-wrap">
+                    <button type="button" class="home-passport-card profile-open" aria-label="Open your Player Passport" aria-describedby="home-passport-summary">
+                      <span class="home-passport-avatar" style="--avatar-color:${escapeAttr(homeAvatar.color)}" aria-hidden="true">${homeAvatar.glyph}</span>
+                      <span class="home-passport-identity" id="home-passport-summary">
+                        <span class="home-passport-kicker">PLAYER PASSPORT · ${flagEmoji(state.profile.flagCode)}</span>
+                        <strong>${escapeText(displayName)}</strong>
+                        <small>${escapeText(titleForLevel(homeProgress.level))} · LEVEL ${homeProgress.level} OF 99</small>
+                        <span class="home-passport-xp" aria-hidden="true"><i style="width:${Math.round(homeProgress.ratio * 100)}%"></i></span>
+                      </span>
+                      <span class="home-passport-stats" aria-label="Player collection summary">
+                        <span><b>${state.profile.wins}</b><small>WINS</small></span>
+                        <span><b>${unlockedPenCount}/${PENS.length}</b><small>PENS</small></span>
+                        <span><b>${unlockedDeskCount}/${DESKS.length}</b><small>DESKS</small></span>
+                      </span>
+                      <span class="home-passport-cta">OPEN PROFILE <b aria-hidden="true">→</b></span>
+                    </button>
+                    <button type="button" class="edit-name-pen" aria-label="Edit name" title="Change name">✎</button>
+                  </div>
+                ` : `
+                  <div class="player-title-row">
+                    <span class="player-display">${escapeText(displayName)}</span>
+                  </div>
+                  <div class="player-journey-subline">
+                    <span>${escapeText(titleForLevel(homeProgress.level))} · </span><span class="trimax-red">Level ${homeProgress.level}</span>
+                  </div>
+                `}
 
                 ${!hasName && this.#pendingInvite ? `
                   <div class="invite-welcome-banner" role="status">
@@ -135,6 +197,15 @@ export class UiRoot {
                   </div>
                   <p class="form-error" role="alert"></p>
                 </form>
+
+                <div class="desk-bump" aria-hidden="true">
+                  <div class="desk-bump-scene">
+                    <i class="bump-trail"></i>
+                    <i class="bump-pen bump-blue"><b></b><b></b><b></b></i>
+                    <i class="bump-pen bump-orange"><b></b><b></b><b></b></i>
+                    <i class="bump-spark"></i>
+                  </div>
+                </div>
 
                 <div class="journey-progress-track" aria-label="Class journey: 2 of 12 pens">
                   <div class="track-nodes">
@@ -267,13 +338,14 @@ export class UiRoot {
               <div class="ruled-heading play-heading"><span>PLAY ANOTHER WAY</span></div>
 
               <nav class="play-list" aria-label="Play another way">
-                <button class="mode-item friend-choice" data-action="friend" type="button" ${hasName ? '' : 'disabled'}>
+                <button class="mode-item friend-choice online-friend-choice" data-action="friend" type="button" ${hasName ? '' : 'disabled'}>
                   <span class="mode-icon chain-icon" aria-hidden="true">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
                   </span>
                   <span class="mode-content">
-                    <strong>FRIEND</strong>
-                    <small>2-3 players · invite with a Link</small>
+                    <span class="mode-title-row"><strong>PLAY A FRIEND ONLINE</strong><span class="badge-live">LIVE</span></span>
+                    <small>2 players · private match</small>
+                    <span class="feature-chips" aria-label="Online features"><i>INVITE LINK</i><i>ROOM CODE</i><i>BEST OF 3</i><i>REMATCH</i></span>
                   </span>
                   <span class="mode-chevron" aria-hidden="true">›</span>
                 </button>
@@ -298,10 +370,10 @@ export class UiRoot {
                   </span>
                   <span class="mode-content">
                     <span class="mode-title-row">
-                      <strong>LOCAL</strong>
+                      <strong>SAME-DEVICE LOCAL</strong>
                       <span class="badge-highlighter">SIMPLE</span>
                     </span>
-                    <small>6 players · score 0-0-0-0-0-0</small>
+                    <small>2–4 players · take turns on one device</small>
                   </span>
                   <span class="mode-chevron" aria-hidden="true">›</span>
                 </button>
@@ -317,6 +389,10 @@ export class UiRoot {
                   <span class="mode-chevron" aria-hidden="true">›</span>
                 </button>
               </nav>
+
+              <div class="physics-feature-note" aria-label="Pen physics feature">
+                <b>REAL PEN PHYSICS</b><span>Pens collide, spin, and stay separate.</span>
+              </div>
 
               <div class="ruled-heading rivals-heading"><span>YOUR RIVALS</span></div>
               <div class="rivals-settle-box">
@@ -364,6 +440,7 @@ export class UiRoot {
         form?.classList.toggle('name-saved');
         input?.focus();
       });
+      this.#layer.querySelector('.profile-open')?.addEventListener('click', this.actions.onOpenProfile);
 
       input?.addEventListener('input', () => { this.#nameDraft = input.value; });
       form?.addEventListener('submit', (event) => {
@@ -382,8 +459,14 @@ export class UiRoot {
         button.addEventListener('click', this.actions.onPlay);
       });
       this.#layer.querySelector('[data-action="instant"]')?.addEventListener('click', this.actions.onPlay);
-      this.#layer.querySelector('[data-action="friend"]')?.addEventListener('click', this.actions.onPlayFriend);
-      this.#layer.querySelector('[data-action="local"]')?.addEventListener('click', this.actions.onPlayFriend);
+      this.#layer.querySelector('[data-action="friend"]')?.addEventListener('click', () => {
+        this.#friendSetupMode = 'online';
+        this.actions.onPlayFriend();
+      });
+      this.#layer.querySelector('[data-action="local"]')?.addEventListener('click', () => {
+        this.#friendSetupMode = 'local';
+        this.actions.onPlayFriend();
+      });
 
       const notice = this.#layer.querySelector<HTMLElement>('#desk-notice');
       const noticeMsg = this.#layer.querySelector<HTMLElement>('.notice-msg');
@@ -399,15 +482,11 @@ export class UiRoot {
       this.#layer.querySelector('[data-action="tournament"]')?.addEventListener('click', () => {
         showNotice('Saturday Recess Tournament opens at 2:00 PM! Sattu currently holds the championship belt.');
       });
-      this.#layer.querySelector('[data-action="ranking"]')?.addEventListener('click', () => {
-        showNotice('Class 9A Standings: You are at #12 (Rookie Desk). Defeat your classmate rivals to climb into the top 10!');
-      });
+      this.#layer.querySelector('[data-action="ranking"]')?.addEventListener('click', this.actions.onOpenLeaderboard);
       this.#layer.querySelector('[data-action="community"]')?.addEventListener('click', () => {
         showNotice('Classroom Community boards are preparing for next term. Join on Discord soon!');
       });
-      this.#layer.querySelector('[data-action="signin"]')?.addEventListener('click', () => {
-        showNotice('Sign in with school roll number or Google will arrive in Pilot V6.');
-      });
+      this.#layer.querySelector('[data-action="signin"]')?.addEventListener('click', this.actions.onOpenAccount);
       this.#layer.querySelector('[data-action="info-how"]')?.addEventListener('click', (e) => {
         e.preventDefault();
         showNotice('Rules: Pull back on your pen to set direction and power, release to flick. Knock rival pen off the desk to win rounds!');
@@ -454,15 +533,190 @@ export class UiRoot {
       return;
     }
 
+    if (state.phase === 'account') {
+      const authenticated = this.#account.status === 'authenticated' && this.#account.account;
+      const progress = progressForXp(state.profile.xp);
+      this.#layer.innerHTML = `<div class="account-screen">
+        <div class="top-bar"><button class="glass-button account-back" type="button">← CLASSROOM</button></div>
+        <section class="paper account-card" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          ${authenticated ? `
+            <p class="eyebrow">ONLINE ACCOUNT</p>
+            <h1 id="account-title">${escapeText(authenticated.username)}</h1>
+            <div class="account-online-badge"><span aria-hidden="true">●</span> SIGNED IN · ${this.#account.syncing ? 'SYNCING…' : this.#account.error ? 'SYNC NEEDS RETRY' : 'PROGRESS SYNCED'}</div>
+            <div class="account-profile-summary">
+              <span class="account-avatar" style="--avatar-color:${escapeAttr(avatarById(state.profile.avatarId).color)}">${avatarById(state.profile.avatarId).glyph}</span>
+              <div><strong>${flagEmoji(state.profile.flagCode)} LEVEL ${progress.level}</strong><small>${state.profile.xp.toLocaleString()} XP · ${state.profile.wins} WINS · ${state.profile.matches} MATCHES</small></div>
+            </div>
+            ${this.#account.error ? `<p class="account-status-error" role="status">${escapeText(this.#account.error)}</p>` : ''}
+            <p>Your Player Passport is saved to this account and can be restored on another device.</p>
+            <button type="button" class="paper-button signout-button">SIGN OUT</button>
+          ` : `
+            <p class="eyebrow">PEN FIGHT ACCOUNT</p>
+            <h1 id="account-title">Save your place</h1>
+            ${this.#account.status === 'offline' ? `<p class="account-status-error" role="status">Account server unavailable. Local play still works.</p>` : ''}
+            <div class="account-tabs" role="tablist" aria-label="Account action">
+              <button type="button" role="tab" class="account-tab active" data-account-tab="signup" aria-selected="true">CREATE ACCOUNT</button>
+              <button type="button" role="tab" class="account-tab" data-account-tab="login" aria-selected="false">SIGN IN</button>
+            </div>
+            <form class="account-form signup-form">
+              <div class="import-progress-note"><strong>KEEP YOUR PROGRESS</strong><span>Your Level ${progress.level}, ${state.profile.xp} XP, avatar, flag, pens, and desks will move into this account.</span></div>
+              <label for="signup-username">Username</label><input id="signup-username" name="username" minlength="3" maxlength="18" pattern="[A-Za-z0-9_]+" autocomplete="username" required placeholder="3–18 letters, numbers or _">
+              <label for="signup-password">Password</label><input id="signup-password" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required placeholder="At least 8 characters">
+              <label for="signup-confirm">Confirm password</label><input id="signup-confirm" name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+              <p class="account-error" role="alert"></p>
+              <button class="paper-button primary" type="submit">CREATE ACCOUNT <span>→</span></button>
+            </form>
+            <form class="account-form login-form" hidden>
+              <label for="login-username">Username</label><input id="login-username" name="username" maxlength="18" autocomplete="username" required>
+              <label for="login-password">Password</label><input id="login-password" name="password" type="password" maxlength="128" autocomplete="current-password" required>
+              <p class="account-error" role="alert"></p>
+              <button class="paper-button primary" type="submit">SIGN IN <span>→</span></button>
+            </form>
+          `}
+        </section>
+      </div>`;
+      this.#layer.querySelector('.account-back')?.addEventListener('click', this.actions.onBack);
+      this.#layer.querySelector('.signout-button')?.addEventListener('click', () => void this.actions.onLogout());
+      this.#layer.querySelectorAll<HTMLButtonElement>('[data-account-tab]').forEach((button) => button.addEventListener('click', () => {
+        const signup = button.dataset.accountTab === 'signup';
+        this.#layer.querySelector('.signup-form')?.toggleAttribute('hidden', !signup);
+        this.#layer.querySelector('.login-form')?.toggleAttribute('hidden', signup);
+        this.#layer.querySelectorAll<HTMLButtonElement>('[data-account-tab]').forEach((tab) => {
+          const selected = tab === button;
+          tab.classList.toggle('active', selected);
+          tab.setAttribute('aria-selected', String(selected));
+        });
+      }));
+      const submit = async (form: HTMLFormElement, mode: 'signup' | 'login') => {
+        const error = form.querySelector<HTMLElement>('.account-error');
+        const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        const username = form.querySelector<HTMLInputElement>('input[name="username"]')?.value.trim() ?? '';
+        const password = form.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? '';
+        const confirm = form.querySelector<HTMLInputElement>('input[name="confirm"]')?.value;
+        if (mode === 'signup' && password !== confirm) { if (error) error.textContent = 'Passwords do not match.'; return; }
+        if (error) error.textContent = '';
+        if (button) { button.disabled = true; button.textContent = mode === 'signup' ? 'CREATING…' : 'SIGNING IN…'; }
+        try {
+          if (mode === 'signup') await this.actions.onSignup(username, password);
+          else await this.actions.onLogin(username, password);
+        } catch (cause) {
+          if (error) error.textContent = cause instanceof Error ? cause.message : 'Account request failed.';
+          if (button) { button.disabled = false; button.textContent = mode === 'signup' ? 'CREATE ACCOUNT →' : 'SIGN IN →'; }
+        }
+      };
+      this.#layer.querySelector<HTMLFormElement>('.signup-form')?.addEventListener('submit', (event) => { event.preventDefault(); void submit(event.currentTarget as HTMLFormElement, 'signup'); });
+      this.#layer.querySelector<HTMLFormElement>('.login-form')?.addEventListener('submit', (event) => { event.preventDefault(); void submit(event.currentTarget as HTMLFormElement, 'login'); });
+      return;
+    }
+
+    if (state.phase === 'leaderboard') {
+      const page = this.#leaderboard.page;
+      const currentId = this.#account.account?.id;
+      const rows = page?.entries.map((entry) => {
+        const avatar = avatarById(entry.avatarId);
+        const current = entry.playerId === currentId;
+        return `<li class="leaderboard-row ${current ? 'current-player' : ''}" ${current ? 'aria-current="true"' : ''}>
+          <b class="leader-rank">#${entry.rank}</b>
+          <span class="leader-avatar" style="--avatar-color:${escapeAttr(avatar.color)}">${avatar.glyph}</span>
+          <span class="leader-name"><strong>${escapeText(entry.username)} ${flagEmoji(entry.flagCode)}</strong><small>LEVEL ${entry.level} · ${entry.xp.toLocaleString()} XP</small></span>
+          <span class="leader-record"><b>${entry.wins}</b><small>WINS</small></span>
+          <span class="leader-record"><b>${entry.matches}</b><small>MATCHES</small></span>
+          <span class="leader-record"><b>${entry.winRate}%</b><small>WIN RATE</small></span>
+        </li>`;
+      }).join('') ?? '';
+      this.#layer.innerHTML = `<div class="leaderboard-screen">
+        <div class="top-bar"><button class="glass-button leaderboard-back" type="button">← CLASSROOM</button></div>
+        <section class="paper leaderboard-card" aria-labelledby="leaderboard-title">
+          <header class="leaderboard-heading"><div><p class="eyebrow">GLOBAL CLASS RANKING</p><h1 id="leaderboard-title">All players</h1><p>${page ? `${page.total.toLocaleString()} registered players · ranked by XP then wins` : 'Opening the class register…'}</p></div><button type="button" class="glass-button leaderboard-refresh">REFRESH</button></header>
+          ${page?.currentRank ? `<div class="my-rank-banner">YOUR GLOBAL RANK <strong>#${page.currentRank}</strong></div>` : this.#account.status === 'authenticated' ? '' : '<div class="my-rank-banner guest">Create an account to claim a global rank.</div>'}
+          ${this.#leaderboard.error ? `<div class="leaderboard-error" role="alert"><strong>Leaderboard unavailable</strong><span>${escapeText(this.#leaderboard.error)}</span></div>` : this.#leaderboard.loading && !page ? '<div class="leaderboard-loading" role="status">Loading every desk…</div>' : page?.total === 0 ? '<div class="leaderboard-empty">No ranked players yet. Be the first.</div>' : `<ol class="leaderboard-list" aria-label="Global player rankings">${rows}</ol>`}
+          ${page && page.entries.length < page.total ? `<button type="button" class="paper-button leaderboard-more" ${this.#leaderboard.loading ? 'disabled' : ''}>${this.#leaderboard.loading ? 'LOADING…' : `LOAD MORE · ${page.entries.length}/${page.total}`}</button>` : ''}
+        </section>
+      </div>`;
+      this.#layer.querySelector('.leaderboard-back')?.addEventListener('click', this.actions.onBack);
+      this.#layer.querySelector('.leaderboard-refresh')?.addEventListener('click', this.actions.onOpenLeaderboard);
+      this.#layer.querySelector('.leaderboard-more')?.addEventListener('click', this.actions.onLoadMoreLeaderboard);
+      return;
+    }
+
+    if (state.phase === 'profile') {
+      const progress = progressForXp(state.profile.xp);
+      const avatar = avatarById(state.profile.avatarId);
+      const winRate = state.profile.matches > 0 ? Math.round((state.profile.wins / state.profile.matches) * 100) : 0;
+      const unlockedPenCount = PENS.filter((pen) => itemUnlocked(pen.unlockLevel, progress.level) || state.profile.unlockedCosmeticIds.includes(pen.id)).length;
+      const unlockedDeskCount = DESKS.filter((desk) => itemUnlocked(desk.unlockLevel, progress.level) || state.profile.unlockedCosmeticIds.includes(desk.id)).length;
+      const flags = FLAG_CODES.map((code) => `<button type="button" role="radio" class="flag-option ${state.profile.flagCode === code ? 'selected' : ''}" data-flag="${code}" data-search="${escapeAttr(`${countryName(code)} ${code}`.toLowerCase())}" aria-checked="${state.profile.flagCode === code}"><span>${flagEmoji(code)}</span>${escapeText(countryName(code))}</button>`).join('');
+      const penCards = PENS.map((pen) => {
+        const unlocked = itemUnlocked(pen.unlockLevel, progress.level) || state.profile.unlockedCosmeticIds.includes(pen.id);
+        const selected = state.profile.selectedPenId === pen.id;
+        return `<button type="button" class="cosmetic-card ${selected ? 'equipped' : ''} ${unlocked ? '' : 'locked'}" data-pen="${pen.id}" ${unlocked ? '' : 'disabled'} aria-pressed="${selected}">
+          <span class="pen-preview" style="--pen-primary:${pen.primary};--pen-accent:${pen.accent}"><i></i></span>
+          <strong>${escapeText(pen.label)}</strong>
+          <small>${selected ? 'EQUIPPED' : unlocked ? 'Unlocked' : `🔒 Level ${pen.unlockLevel}`}</small>
+        </button>`;
+      }).join('');
+      const deskCards = DESKS.map((desk) => {
+        const unlocked = itemUnlocked(desk.unlockLevel, progress.level) || state.profile.unlockedCosmeticIds.includes(desk.id);
+        const selected = state.profile.selectedDeskId === desk.id;
+        return `<button type="button" class="cosmetic-card desk-card ${selected ? 'equipped' : ''} ${unlocked ? '' : 'locked'}" data-desk="${desk.id}" ${unlocked ? '' : 'disabled'} aria-pressed="${selected}">
+          <span class="desk-preview" style="--desk-surface:${desk.surface};--desk-trim:${desk.trim}"></span>
+          <strong>${escapeText(desk.label)}</strong>
+          <small>${selected ? 'EQUIPPED' : unlocked ? 'Unlocked' : `🔒 Level ${desk.unlockLevel}`}</small>
+        </button>`;
+      }).join('');
+
+      this.#layer.innerHTML = `<div class="profile-screen">
+        <div class="top-bar"><button class="glass-button profile-back" type="button">← CLASSROOM</button></div>
+        <section class="paper player-passport" role="dialog" aria-modal="true" aria-labelledby="passport-title">
+          <header class="passport-heading">
+            <div class="passport-mark" style="--avatar-color:${avatar.color}">${avatar.glyph}</div>
+            <div><p class="eyebrow">PEN FIGHT PLAYER PASSPORT</p><h1 id="passport-title">${escapeText(state.player.name.toUpperCase())} ${flagEmoji(state.profile.flagCode)}</h1><p>${escapeText(titleForLevel(progress.level))} · Level ${progress.level}</p>${this.#account.status === 'authenticated' ? `<span class="account-online-badge"><span aria-hidden="true">●</span> ONLINE ACCOUNT · ${escapeText(this.#account.account?.username ?? '')}</span>` : ''}<button type="button" class="text-button profile-edit-name">EDIT NAME</button></div>
+          </header>
+          <div class="passport-columns">
+            <div class="passport-main">
+              <section class="passport-panel progress-panel" aria-label="Player progress">
+                <div class="level-summary"><strong>LEVEL ${progress.level}</strong><span>${progress.maxLevel ? 'MAX LEVEL' : `${progress.remainingXp} XP TO LEVEL ${progress.level + 1}`}</span></div>
+                <div class="passport-xp" role="progressbar" aria-valuemin="0" aria-valuemax="${progress.maxLevel ? 1 : progress.requiredInLevel}" aria-valuenow="${progress.maxLevel ? 1 : progress.earnedInLevel}"><i style="width:${Math.round(progress.ratio * 100)}%"></i></div>
+                <small>${progress.currentXp.toLocaleString()} TOTAL XP</small>
+                <div class="passport-stats"><div><b>${state.profile.wins}</b><span>WINS</span></div><div><b>${state.profile.matches}</b><span>MATCHES</span></div><div><b>${winRate}%</b><span>WIN RATE</span></div></div>
+              </section>
+              <section class="passport-panel"><div class="section-title"><h2>MY PENS</h2><span>${unlockedPenCount}/${PENS.length} UNLOCKED</span></div><div class="cosmetic-row">${penCards}</div></section>
+              <section class="passport-panel"><div class="section-title"><h2>MY DESKS</h2><span>${unlockedDeskCount}/${DESKS.length} UNLOCKED</span></div><div class="cosmetic-row desk-row">${deskCards}</div></section>
+            </div>
+            <aside class="passport-editor">
+              <section class="passport-panel"><h2>AVATAR</h2><div class="avatar-grid" role="radiogroup" aria-label="Choose avatar">${AVATARS.map((option) => `<button type="button" role="radio" class="avatar-option ${option.id === state.profile.avatarId ? 'selected' : ''}" style="--avatar-color:${option.color}" data-avatar="${option.id}" aria-label="${escapeAttr(option.label)}" aria-checked="${option.id === state.profile.avatarId}">${option.glyph}</button>`).join('')}</div></section>
+              <section class="passport-panel flag-panel"><h2>FLAG</h2><label for="flag-search">Find your country</label><input id="flag-search" type="search" placeholder="Search country or code" autocomplete="off"><div class="flag-list" role="radiogroup" aria-label="Choose country flag">${flags}</div></section>
+            </aside>
+          </div>
+        </section>
+      </div>`;
+
+      this.#layer.querySelector('.profile-back')?.addEventListener('click', this.actions.onBack);
+      this.#layer.querySelector('.profile-edit-name')?.addEventListener('click', this.actions.onEditName);
+      this.#layer.querySelectorAll<HTMLElement>('[data-avatar]').forEach((button) => button.addEventListener('click', () => this.actions.onSetAvatar(button.dataset.avatar ?? '')));
+      this.#layer.querySelectorAll<HTMLElement>('[data-flag]').forEach((button) => button.addEventListener('click', () => this.actions.onSetFlag(button.dataset.flag ?? '')));
+      this.#layer.querySelectorAll<HTMLElement>('[data-pen]').forEach((button) => button.addEventListener('click', () => this.actions.onEquipPen(button.dataset.pen ?? '')));
+      this.#layer.querySelectorAll<HTMLElement>('[data-desk]').forEach((button) => button.addEventListener('click', () => this.actions.onEquipDesk(button.dataset.desk ?? '')));
+      this.#layer.querySelector<HTMLInputElement>('#flag-search')?.addEventListener('input', (event) => {
+        const query = (event.currentTarget as HTMLInputElement).value.trim().toLowerCase();
+        this.#layer.querySelectorAll<HTMLElement>('.flag-option').forEach((option) => {
+          option.hidden = Boolean(query) && !(option.dataset.search ?? '').includes(query);
+        });
+      });
+      return;
+    }
+
     if (state.phase === 'settingUpLocal') {
       const onlineBusy = this.#online.status !== 'idle';
+      const setupOnline = onlineBusy || this.#friendSetupMode === 'online';
       const room = this.#online.room ?? this.#pendingInvite ?? '';
       const isGuest = this.#online.seat === 'guest' || (onlineBusy && Boolean(this.#pendingInvite));
       this.#layer.innerHTML = `<div class="local-setup-screen">
         <div class="top-bar"><button class="glass-button back-button" type="button">← BACK</button></div>
         <section class="paper local-setup-card" aria-labelledby="local-setup-title">
-          <p class="eyebrow">${onlineBusy ? (isGuest ? 'ONLINE FRIEND MATCH · GUEST' : 'ONLINE FRIEND MATCH · HOST') : 'FRIEND MATCH · LOCAL DESK'}</p>
-          <h1 id="local-setup-title">${onlineBusy ? (isGuest ? (room ? `Joining Desk ${escapeText(room)}` : 'Joining Friend’s Desk') : 'Invite a friend') : 'Choose your rival'}</h1>
+          <p class="eyebrow">${onlineBusy ? (isGuest ? 'ONLINE FRIEND MATCH · GUEST' : 'ONLINE FRIEND MATCH · HOST') : setupOnline ? 'ONLINE FRIEND MATCH' : 'FRIEND MATCH · LOCAL DESK'}</p>
+          <h1 id="local-setup-title">${onlineBusy ? (isGuest ? (room ? `Joining Desk ${escapeText(room)}` : 'Joining Friend’s Desk') : 'Invite a friend') : setupOnline ? 'Play a friend online' : 'Choose your rival'}</h1>
+          <div class="match-rules-strip" aria-label="Match features"><strong>BEST OF 3</strong>${setupOnline ? '<span>PRIVATE ROOM</span><span>REMATCH READY</span>' : '<span>SAME DEVICE</span><span>2–4 PLAYERS</span>'}</div>
           <p class="local-player-one"><span>${onlineBusy ? (isGuest ? 'YOU (GUEST) · RED PEN' : 'YOU (HOST) · BLUE PEN') : 'PLAYER 1 · BLUE PEN'}</span><strong>${escapeText(state.player.name)}</strong></p>
           ${onlineBusy ? `<section class="online-room" aria-live="polite">
             <span>${this.#online.status === 'ready' ? 'FRIEND CONNECTED' : this.#online.status === 'error' ? 'CONNECTION PROBLEM' : isGuest ? 'JOINING ROOM' : 'ONLINE INVITE'}</span>
@@ -473,6 +727,7 @@ export class UiRoot {
                 <button class="glass-button cancel-online" type="button">Cancel</button>
               </div>
             ` : this.#online.status === 'waiting' && room ? `
+              <small class="room-code-label">ROOM CODE</small>
               <strong class="room-code">${escapeText(room)}</strong>
               <p>Send this link to your friend. They only need to open it.</p>
               <div class="online-buttons">
@@ -490,8 +745,8 @@ export class UiRoot {
                 <button class="glass-button cancel-online" type="button">Cancel</button>
               </div>
             `}
-          </section>` : `<div class="friend-mode-grid"><button class="friend-mode active" data-friend-mode="local" type="button"><strong>Same device</strong><small>Take turns at this desk</small></button><button class="friend-mode" data-friend-mode="online" type="button"><strong>Online invite</strong><small>Each friend uses a device</small></button></div>
-          <form class="local-setup-form">
+          </section>` : `<div class="friend-mode-grid"><button class="friend-mode ${setupOnline ? '' : 'active'}" data-friend-mode="local" type="button" aria-label="Same-device local match" aria-pressed="${!setupOnline}"><strong>Same-device local</strong><small>2–4 players take turns at this desk</small></button><button class="friend-mode ${setupOnline ? 'active' : ''}" data-friend-mode="online" type="button" aria-label="Online invite — invite link or room code" aria-pressed="${setupOnline}"><strong>Play online</strong><small>Invite link or 6-character room code</small></button></div>
+          <form class="local-setup-form" ${setupOnline ? 'hidden' : ''}>
             <div class="player-count-picker-group">
               <span class="picker-label">Number of players</span>
               <div class="player-count-picker" role="radiogroup" aria-label="Number of players">
@@ -518,7 +773,7 @@ export class UiRoot {
 
             <p class="form-error" role="alert"></p>
             <button class="paper-button primary" type="submit">Start local match <span>→</span></button>
-          </form><section class="online-choice" hidden><p>Create a private room and share one link—no account required.</p><button class="paper-button primary create-online" type="button">Create invite link <span>→</span></button><form class="join-room-form"><label for="room-code">Or enter a room code</label><div class="input-line"><input id="room-code" maxlength="6" placeholder="ABC234"><button type="submit">JOIN</button></div></form></section>`}
+          </form><section class="online-choice" ${setupOnline ? '' : 'hidden'}><p>Create a private room and share one link—no account required.</p><div class="online-feature-list"><span>✓ INVITE LINK</span><span>✓ ROOM CODE</span><span>✓ BEST OF 3</span><span>✓ REMATCH</span></div><button class="paper-button primary create-online" type="button">Create invite link <span>→</span></button><form class="join-room-form"><label for="room-code">Or join with a room code</label><div class="input-line"><input id="room-code" maxlength="6" placeholder="ABC234" aria-label="Room code"><button type="submit">JOIN ROOM</button></div></form></section>`}
         </section>
       </div>`;
       let selectedPlayerCount = 2;
@@ -563,9 +818,22 @@ export class UiRoot {
       this.#layer.querySelector<HTMLFormElement>('.join-room-form')?.addEventListener('submit', (event) => { event.preventDefault(); const value = this.#layer.querySelector<HTMLInputElement>('#room-code')?.value.trim() ?? ''; if (value) this.actions.onJoinOnline(value); });
       this.#layer.querySelectorAll<HTMLElement>('[data-friend-mode]').forEach((button) => button.addEventListener('click', () => {
         const online = button.dataset.friendMode === 'online';
+        this.#friendSetupMode = online ? 'online' : 'local';
         this.#layer.querySelector('.local-setup-form')?.toggleAttribute('hidden', online);
         this.#layer.querySelector('.online-choice')?.toggleAttribute('hidden', !online);
-        this.#layer.querySelectorAll('.friend-mode').forEach((item) => item.classList.toggle('active', item === button));
+        this.#layer.querySelectorAll('.friend-mode').forEach((item) => {
+          const active = item === button;
+          item.classList.toggle('active', active);
+          item.setAttribute('aria-pressed', String(active));
+        });
+        const eyebrow = this.#layer.querySelector<HTMLElement>('.local-setup-card > .eyebrow');
+        const title = this.#layer.querySelector<HTMLElement>('#local-setup-title');
+        const rules = this.#layer.querySelector<HTMLElement>('.match-rules-strip');
+        if (eyebrow) eyebrow.textContent = online ? 'ONLINE FRIEND MATCH' : 'FRIEND MATCH · LOCAL DESK';
+        if (title) title.textContent = online ? 'Play a friend online' : 'Choose your rival';
+        if (rules) rules.innerHTML = online
+          ? '<strong>BEST OF 3</strong><span>PRIVATE ROOM</span><span>REMATCH READY</span>'
+          : '<strong>BEST OF 3</strong><span>SAME DEVICE</span><span>2–4 PLAYERS</span>';
       }));
       form?.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -607,7 +875,7 @@ export class UiRoot {
       this.#layer.querySelector<HTMLElement>('.local-setup-screen')?.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') goBack();
       });
-      if (!onlineBusy) queueMicrotask(() => input?.focus());
+      if (!onlineBusy && !setupOnline) queueMicrotask(() => input?.focus());
       return;
     }
 
@@ -683,7 +951,7 @@ export class UiRoot {
             <button class="glass-button match-exit" type="button" aria-label="Leave match">
               <span>←</span> EXIT
             </button>
-            <span class="match-mode match-mode-badge">${practice ? 'FREE PLAY' : online ? `ONLINE · ${escapeText(this.#online.room ?? '')}` : local ? 'LOCAL FRIEND' : 'QUICK MATCH'}</span>
+            <span class="match-mode match-mode-badge">${practice ? 'FREE PLAY' : online ? `ONLINE · BEST OF 3 · ${escapeText(this.#online.room ?? '')}` : local ? 'LOCAL FRIEND · BEST OF 3' : 'QUICK MATCH · BEST OF 3'}</span>
           </div>
 
           <div class="match-bar-right">
@@ -784,9 +1052,17 @@ export class UiRoot {
       const playerNames = state.match?.playerNames && state.match.playerNames.length > 0
         ? state.match.playerNames
         : [state.player.name, state.match?.rivalName ?? 'Player 2'];
-      const won = winningIndex === 0;
+      const won = winningIndex === (state.match?.localPlayer ?? 0);
       const winnerName = playerNames[winningIndex] ?? state.player.name;
       const isMulti = playerNames.length > 2;
+      const reward = state.match?.reward;
+      const rewardProgress = reward ? progressForXp(reward.newXp) : null;
+      const unlockedLabels = reward?.unlockedIds.map((id) => PENS.find((pen) => pen.id === id)?.label ?? DESKS.find((desk) => desk.id === id)?.label ?? id) ?? [];
+      const rewardMarkup = reward?.reason === 'duplicate'
+        ? `<p class="no-xp-note">Reward already collected</p>`
+        : reward?.eligible && rewardProgress
+        ? `<section class="result-reward" aria-label="Match rewards"><div><strong>+${reward.xp} XP</strong><span>${reward.newLevel > reward.previousLevel ? `LEVEL UP · ${reward.newLevel}` : `${rewardProgress.remainingXp} XP TO LEVEL ${rewardProgress.level + 1}`}</span></div><div class="passport-xp"><i style="width:${Math.round(rewardProgress.ratio * 100)}%"></i></div>${unlockedLabels.length ? `<p class="unlock-note">UNLOCKED · ${unlockedLabels.map(escapeText).join(' · ')}</p>` : ''}</section>`
+        : reward?.reason ? `<p class="no-xp-note">No XP — ${reward.reason === 'local' ? 'local match' : 'practice match'}</p>` : '';
 
       this.#layer.innerHTML = `<section class="paper result-card" role="dialog" aria-modal="true" aria-labelledby="result-title">
         <p class="eyebrow">FINAL BELL</p>
@@ -795,7 +1071,8 @@ export class UiRoot {
           ? playerNames.map((name, i) => `${escapeText(name)}: <strong>${scores[i] ?? 0}</strong>`).join(' · ')
           : `${escapeText(playerNames[0] ?? state.player.name)} <strong>${scores[0] ?? 0} : ${scores[1] ?? 0}</strong> ${escapeText(playerNames[1] ?? 'Player 2')}`
         }</p>
-        <div class="result-actions"><button class="paper-button primary rematch" type="button">Flick again →</button><button class="text-button result-exit" type="button">Back to classroom</button></div>
+        ${rewardMarkup}
+        <div class="result-actions"><button class="paper-button primary rematch" type="button">REMATCH · FLICK AGAIN →</button><button class="text-button result-exit" type="button">Back to classroom</button></div>
       </section>`;
       this.#layer.querySelector('.rematch')?.addEventListener('click', this.actions.onRematch);
       this.#layer.querySelector('.result-exit')?.addEventListener('click', this.actions.onBack);
@@ -868,6 +1145,7 @@ export class UiRoot {
   }
 
   triggerHit(_intensity: number): void {
+    void _intensity;
     if (this.#state?.settings?.reducedMotion) return;
     this.#layer.classList.remove('pen-hit-pulse');
     void this.#layer.offsetWidth;

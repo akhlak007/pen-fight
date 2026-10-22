@@ -8,6 +8,10 @@ import { UiRoot } from './ui/ui-root';
 import { OnlineSession, type OnlineState } from './network/online-session';
 import type { ServerMessage } from './network/protocol';
 import { AmbienceService } from './audio/ambience-service';
+import { AVATARS, DESKS, PENS, itemUnlocked, validFlagCode } from './profile/profile-catalog';
+import { levelForXp } from './profile/progression';
+import { AccountClient } from './account/account-client';
+import type { AccountSnapshot, LeaderboardPage } from './account/account-types';
 
 function createApplicationShell(): { root: HTMLElement; canvas: HTMLCanvasElement } {
   const root = document.createElement('main');
@@ -42,22 +46,63 @@ try {
 }
 const storage = new StorageService(availableStorage);
 const save = storage.load();
-store.hydrate(save.playerName, save.settings);
+store.hydrate(save.playerName, save.settings, {
+  ...save.profile,
+  ...save.progression,
+  unlockedCosmeticIds: [...new Set([...save.unlockedPens, ...save.unlockedCosmetics])],
+});
 const online = new OnlineSession();
+const accounts = new AccountClient();
+const unlockedForStorage = (ids: readonly string[]) => ({
+  unlockedPens: ids.filter((id) => PENS.some((pen) => pen.id === id)),
+  unlockedCosmetics: ids.filter((id) => DESKS.some((desk) => desk.id === id)),
+});
 const ambience = new AmbienceService(`${import.meta.env.BASE_URL}audio/sound_of_class.mp3`);
 ambience.setEnabled(save.settings.ambience);
 ambience.startGameAmbience();
 let pendingRoom = OnlineSession.roomFromUrl();
+const publicProfile = () => ({
+  avatarId: store.snapshot.profile.avatarId,
+  flagCode: store.snapshot.profile.flagCode,
+  penId: store.snapshot.profile.selectedPenId,
+});
 
 let renderer: GameRenderer | null = null;
 try {
   renderer = new GameRenderer(canvas);
+  renderer.setCosmeticLoadout(save.profile.selectedPenId, save.profile.selectedDeskId);
   renderer.setReducedMotion(save.settings.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches);
   renderer.start();
 } catch (error) {
   console.error('WebGL startup failed', error);
   canvas.classList.add('webgl-fallback');
 }
+
+let leaderboardPage: LeaderboardPage | undefined;
+let applyingServerProfile = false;
+const applyAccount = (account: AccountSnapshot) => {
+  applyingServerProfile = true;
+  store.hydrate(account.username, store.snapshot.settings, account.profile);
+  storage.update({
+    playerName: account.username,
+    profile: {
+      avatarId: account.profile.avatarId,
+      flagCode: account.profile.flagCode,
+      selectedPenId: account.profile.selectedPenId,
+      selectedDeskId: account.profile.selectedDeskId,
+    },
+    progression: {
+      wins: account.profile.wins,
+      matches: account.profile.matches,
+      xp: account.profile.xp,
+      awardedMatchIds: account.profile.awardedMatchIds,
+    },
+    ...unlockedForStorage(account.profile.unlockedCosmeticIds),
+  });
+  renderer?.setPlayerName(account.username);
+  renderer?.setCosmeticLoadout(account.profile.selectedPenId, account.profile.selectedDeskId);
+  applyingServerProfile = false;
+};
 
 const ui = new UiRoot(store, {
   onSaveName(name) {
@@ -70,7 +115,7 @@ const ui = new UiRoot(store, {
       pendingRoom = null;
       ui.setPendingInvite(null);
       store.transition('settingUpLocal');
-      online.join(room, store.snapshot.player.name);
+      online.join(room, store.snapshot.player.name, publicProfile());
     }
   },
   onPlay() {
@@ -88,12 +133,13 @@ const ui = new UiRoot(store, {
     const playerCount = store.snapshot.match?.playerNames ? store.snapshot.match.playerNames.length : 2;
     renderer?.focusArena();
     renderer?.setLocalPlayer(null);
+    renderer?.setCosmeticLoadout(null, store.snapshot.profile.selectedDeskId);
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode('local', playerCount, store.snapshot.match?.playerNames);
     ambience.startGameAmbience();
   },
-  onCreateOnline() { online.create(store.snapshot.player.name); },
-  onJoinOnline(room) { online.join(room, store.snapshot.player.name); },
+  onCreateOnline() { online.create(store.snapshot.player.name, publicProfile()); },
+  onJoinOnline(room) { online.join(room, store.snapshot.player.name, publicProfile()); },
   onCancelOnline() {
     online.close();
     ui.setOnlineState(online.state);
@@ -121,6 +167,7 @@ const ui = new UiRoot(store, {
     store.startMatch(mode);
     renderer?.focusArena();
     renderer?.setLocalPlayer(null);
+    renderer?.setCosmeticLoadout(store.snapshot.profile.selectedPenId, store.snapshot.profile.selectedDeskId);
     renderer?.setMatchEnabled(true);
     renderer?.setMatchMode(mode, 2);
     ambience.startGameAmbience();
@@ -142,12 +189,72 @@ const ui = new UiRoot(store, {
       renderer?.setLocalPlayer(online.state.seat === 'guest' ? 1 : 0);
     } else {
       renderer?.setLocalPlayer(null);
+      renderer?.setCosmeticLoadout(mode === 'local' ? null : store.snapshot.profile.selectedPenId, store.snapshot.profile.selectedDeskId);
     }
     renderer?.focusArena();
     ambience.startGameAmbience();
   },
   onEditName() {
     store.transition('naming');
+  },
+  onOpenProfile() {
+    store.transition('profile');
+    renderer?.focusRoom();
+    renderer?.setMatchEnabled(false);
+  },
+  onOpenAccount() {
+    if (store.snapshot.phase === 'home') store.transition('account');
+    renderer?.focusRoom();
+    renderer?.setMatchEnabled(false);
+  },
+  onOpenLeaderboard() {
+    if (store.snapshot.phase === 'home') store.transition('leaderboard');
+    leaderboardPage = undefined;
+    ui.setLeaderboardState({ loading: true });
+    void accounts.leaderboard().then((page) => {
+      leaderboardPage = page;
+      ui.setLeaderboardState({ loading: false, page });
+    }).catch((error: unknown) => ui.setLeaderboardState({ loading: false, error: error instanceof Error ? error.message : 'Leaderboard unavailable.' }));
+  },
+  async onSignup(username, password) {
+    const account = await accounts.signup(username, password, store.snapshot.profile);
+    applyAccount(account);
+  },
+  async onLogin(username, password) {
+    const account = await accounts.login(username, password);
+    applyAccount(account);
+  },
+  async onLogout() {
+    await accounts.logout();
+  },
+  onLoadMoreLeaderboard() {
+    const current = leaderboardPage;
+    if (!current || current.entries.length >= current.total) return;
+    ui.setLeaderboardState({ loading: true, page: current });
+    void accounts.leaderboard(current.entries.length).then((next) => {
+      leaderboardPage = { ...next, offset: 0, entries: [...current.entries, ...next.entries] };
+      ui.setLeaderboardState({ loading: false, page: leaderboardPage });
+    }).catch((error: unknown) => ui.setLeaderboardState({ loading: false, page: current, error: error instanceof Error ? error.message : 'Leaderboard unavailable.' }));
+  },
+  onSetAvatar(avatarId) {
+    if (AVATARS.some((avatar) => avatar.id === avatarId)) store.updateProfile({ avatarId });
+  },
+  onSetFlag(flagCode) {
+    if (validFlagCode(flagCode)) store.updateProfile({ flagCode: flagCode.toUpperCase() });
+  },
+  onEquipPen(penId) {
+    const pen = PENS.find((item) => item.id === penId);
+    if (pen && (itemUnlocked(pen.unlockLevel, levelForXp(store.snapshot.profile.xp)) || store.snapshot.profile.unlockedCosmeticIds.includes(pen.id))) {
+      store.updateProfile({ selectedPenId: pen.id });
+      renderer?.setCosmeticLoadout(pen.id, store.snapshot.profile.selectedDeskId);
+    }
+  },
+  onEquipDesk(deskId) {
+    const desk = DESKS.find((item) => item.id === deskId);
+    if (desk && (itemUnlocked(desk.unlockLevel, levelForXp(store.snapshot.profile.xp)) || store.snapshot.profile.unlockedCosmeticIds.includes(desk.id))) {
+      store.updateProfile({ selectedDeskId: desk.id });
+      renderer?.setCosmeticLoadout(store.snapshot.profile.selectedPenId, desk.id);
+    }
   },
   onToggleReducedMotion(value) {
     store.updateSettings({ reducedMotion: value });
@@ -161,6 +268,8 @@ const ui = new UiRoot(store, {
   },
 });
 if (pendingRoom) ui.setPendingInvite(pendingRoom);
+accounts.subscribe((state) => ui.setAccountState(state));
+void accounts.restore().then((account) => { if (account) applyAccount(account); });
 
 function enterOnlineMatch(state: OnlineState): void {
   if (state.status !== 'ready' || store.snapshot.phase !== 'settingUpLocal') return;
@@ -168,29 +277,37 @@ function enterOnlineMatch(state: OnlineState): void {
   const guestName = state.players?.[1] || (state.seat === 'guest' ? store.snapshot.player.name : 'Guest');
   const playerNames = [hostName, guestName] as const;
   const rival = state.seat === 'host' ? guestName : hostName;
-  store.startOnlineMatch(rival, playerNames);
+  store.startOnlineMatch(rival, playerNames, state.seat === 'guest' ? 1 : 0);
   renderer?.focusArena();
   renderer?.setMatchMode('online', 2, playerNames);
   renderer?.setReplica(state.seat === 'guest');
   renderer?.setLocalPlayer(state.seat === 'guest' ? 1 : 0);
+  const remoteProfile = state.profiles?.[state.seat === 'guest' ? 0 : 1];
+  renderer?.setCosmeticLoadout(store.snapshot.profile.selectedPenId, store.snapshot.profile.selectedDeskId, remoteProfile?.penId ?? null);
   renderer?.setMatchEnabled(true);
   ambience.startGameAmbience();
 
-  let pendingAim: { x: number; y: number } | null = null;
+  let pendingAim: { x: number; y: number; grab?: number } | null = null;
   let aimSendTimer: number | null = null;
   const flushAim = () => {
     if (pendingAim && online.connected) {
-      online.send({ type: 'intent', action: 'aim', x: pendingAim.x, y: pendingAim.y });
+      online.send({
+        type: 'intent',
+        action: 'aim',
+        x: pendingAim.x,
+        y: pendingAim.y,
+        ...(pendingAim.grab !== undefined ? { grab: pendingAim.grab } : {}),
+      });
       pendingAim = null;
     }
     aimSendTimer = null;
   };
 
-  renderer?.setInputListener((action, x, y) => {
+  renderer?.setInputListener((action, x, y, grab) => {
     if (state.seat === 'guest') {
       if (action === 'aim' && x !== undefined && y !== undefined) {
-        renderer?.remoteInput('aim', x, y);
-        pendingAim = { x, y };
+        renderer?.remoteInput('aim', x, y, grab);
+        pendingAim = { x, y, grab };
         if (aimSendTimer === null) {
           flushAim();
           aimSendTimer = window.setTimeout(flushAim, 30);
@@ -202,14 +319,16 @@ function enterOnlineMatch(state: OnlineState): void {
         }
         const finalX = x ?? pendingAim?.x;
         const finalY = y ?? pendingAim?.y;
+        const finalGrab = grab ?? pendingAim?.grab;
         pendingAim = null;
         online.send({
           type: 'intent',
           action: 'flick',
           ...(finalX !== undefined ? { x: finalX } : {}),
           ...(finalY !== undefined ? { y: finalY } : {}),
+          ...(finalGrab !== undefined ? { grab: finalGrab } : {}),
         });
-        renderer?.remoteInput('flick', finalX, finalY);
+        renderer?.remoteInput('flick', finalX, finalY, finalGrab);
       } else if (action === 'cancel') {
         if (aimSendTimer !== null) {
           clearTimeout(aimSendTimer);
@@ -228,18 +347,25 @@ online.addEventListener('state', (event) => {
   const state = (event as CustomEvent<OnlineState>).detail;
   ui.setOnlineState(state);
   enterOnlineMatch(state);
+  if (store.snapshot.match?.mode === 'online' && state.seat) {
+    const remoteProfile = state.profiles?.[state.seat === 'guest' ? 0 : 1];
+    renderer?.setCosmeticLoadout(store.snapshot.profile.selectedPenId, store.snapshot.profile.selectedDeskId, remoteProfile?.penId ?? null);
+  }
   if (store.snapshot.match?.mode === 'online') renderer?.setSuspended(state.status !== 'ready');
 });
 online.addEventListener('message', (event) => {
   const message = (event as CustomEvent<ServerMessage>).detail;
-  if (message.type === 'intent' && online.state.seat === 'host') renderer?.remoteInput(message.action, message.x, message.y);
+  if (message.type === 'intent' && online.state.seat === 'host') renderer?.remoteInput(message.action, message.x, message.y, message.grab);
   if (message.type === 'snapshot') {
     renderer?.applyArenaSnapshot(message.arena);
     if (online.state.seat === 'guest' && store.snapshot.phase === 'match') {
       store.syncOnlineMatch(message.arena.score, message.arena.currentPlayer, 'match');
     }
   }
-  if (message.type === 'state' && online.state.seat === 'guest') store.syncOnlineMatch(message.score, message.currentPlayer, message.phase);
+  if (message.type === 'state' && online.state.seat === 'guest') {
+    const rewardKey = online.state.room ? `${online.state.room.toLowerCase()}-${message.seq}` : undefined;
+    store.syncOnlineMatch(message.score, message.currentPlayer, message.phase, rewardKey);
+  }
 });
 
 renderer?.setPointListener((winner) => store.recordPoint(winner));
@@ -248,7 +374,28 @@ renderer?.setAimListener((power) => ui.setAimPower(power));
 renderer?.setRoundListener((message) => ui.setRoundMessage(message));
 renderer?.setActionListener((action) => ui.setArenaAction(action));
 renderer?.setHitListener((intensity) => ui.triggerHit(intensity));
+let persistedProfile = JSON.stringify(store.snapshot.profile);
 store.subscribe((state) => {
+  const nextProfile = JSON.stringify(state.profile);
+  if (nextProfile !== persistedProfile) {
+    persistedProfile = nextProfile;
+    storage.update({
+      profile: {
+        avatarId: state.profile.avatarId,
+        flagCode: state.profile.flagCode,
+        selectedPenId: state.profile.selectedPenId,
+        selectedDeskId: state.profile.selectedDeskId,
+      },
+      progression: {
+        wins: state.profile.wins,
+        matches: state.profile.matches,
+        xp: state.profile.xp,
+        awardedMatchIds: state.profile.awardedMatchIds,
+      },
+      ...unlockedForStorage(state.profile.unlockedCosmeticIds),
+    });
+    if (!applyingServerProfile && accounts.state.status === 'authenticated') void accounts.syncProfile(state.profile);
+  }
   const rival = state.match?.rivalName ?? (state.match?.mode === 'local' ? 'PLAYER 2' : state.match?.mode === 'quick' ? 'CLASS ACE' : 'AI rival');
   renderer?.setBoardState(state.player.name, rival, state.match?.score ?? [0, 0]);
   renderer?.setSuspended(state.phase === 'paused' || (state.match?.mode === 'online' && online.state.status !== 'ready'));
@@ -312,7 +459,7 @@ async function finishBoot(): Promise<void> {
     pendingRoom = null;
     ui.setPendingInvite(null);
     store.transition('settingUpLocal');
-    online.join(room, save.playerName);
+    online.join(room, save.playerName, publicProfile());
   }
 }
 

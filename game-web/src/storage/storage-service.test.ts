@@ -39,12 +39,42 @@ describe('StorageService', () => {
       lastMode: 'practice',
     }));
     const save = new StorageService(memory).load();
+    expect(save.version).toBe(2);
     expect(save.playerName).toBe('Rafi');
     expect(save.settings.music).toBe(false);
     expect(save.settings.effects).toBe(true);
-    expect(save.progression).toEqual({ wins: 3, matches: 0, xp: 90 });
+    expect(save.progression).toEqual({ wins: 3, matches: 0, xp: 90, awardedMatchIds: [] });
     expect(save.unlockedPens).toEqual(['classic-blue']);
     expect(save.lastMode).toBe('practice');
+    expect(save.profile).toEqual(defaultSave.profile);
+  });
+
+  it('sanitizes version-2 profile fields independently and rejects locked selections', () => {
+    const memory = new MemoryStorage();
+    memory.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultSave,
+      progression: { wins: 1, matches: 2, xp: 520 },
+      profile: { avatarId: 'scholar', flagCode: 'us', selectedPenId: 'red-comet', selectedDeskId: 'science-lab' },
+      unlockedCosmetics: ['special-event', '<bad>'],
+    }));
+
+    const save = new StorageService(memory).load();
+    expect(save.profile).toEqual({ avatarId: 'scholar', flagCode: 'US', selectedPenId: 'red-comet', selectedDeskId: 'classroom-oak' });
+    expect(save.unlockedCosmetics).toEqual(['special-event']);
+    expect(save.progression).toEqual({ wins: 1, matches: 2, xp: 520, awardedMatchIds: [] });
+  });
+
+  it('clamps progression numbers and keeps safe reward identifiers', () => {
+    const memory = new MemoryStorage();
+    memory.setItem(STORAGE_KEY, JSON.stringify({
+      ...defaultSave,
+      progression: { wins: 1e308, matches: Infinity, xp: 1e308, awardedMatchIds: ['abc234-8', '<bad>'] },
+    }));
+    const save = new StorageService(memory).load();
+    expect(save.progression.wins).toBe(Number.MAX_SAFE_INTEGER);
+    expect(save.progression.matches).toBe(0);
+    expect(save.progression.xp).toBe(Number.MAX_SAFE_INTEGER);
+    expect(save.progression.awardedMatchIds).toEqual(['abc234-8']);
   });
 
   it('imports a compatible legacy name', () => {
@@ -68,7 +98,7 @@ describe('StorageService', () => {
       ...defaultSave,
       playerName: 'Nila',
       settings: { ...defaultSave.settings, reducedMotion: true, music: false },
-      progression: { wins: 8, matches: 10, xp: 900 },
+      progression: { wins: 8, matches: 10, xp: 900, awardedMatchIds: [] },
       unlockedPens: ['classic-blue', 'red-comet'],
     });
     const reset = service.resetProgress();
@@ -77,6 +107,7 @@ describe('StorageService', () => {
     expect(reset.settings.music).toBe(false);
     expect(reset.progression).toEqual(defaultSave.progression);
     expect(reset.unlockedPens).toEqual(['classic-blue']);
+    expect(reset.profile).toEqual(defaultSave.profile);
   });
 
   it('keeps an in-memory save when browser storage is blocked', () => {

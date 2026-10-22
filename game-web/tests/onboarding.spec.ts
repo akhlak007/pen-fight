@@ -46,6 +46,44 @@ test('notebook home stacks cleanly on a narrow screen', async ({ page }) => {
   expect(hasHorizontalOverflow).toBe(false);
 });
 
+test('completed profile and online features are visible from the home screen', async ({ page }) => {
+  await page.getByLabel('Your name').fill('Rafi');
+  await page.getByRole('button', { name: /Claim my desk/ }).click();
+
+  const passport = page.getByRole('button', { name: 'Open your Player Passport' });
+  await expect(passport).toBeVisible();
+  await expect(passport).toContainText('PLAYER PASSPORT');
+  await expect(passport).toContainText('LEVEL 1 OF 99');
+  await expect(passport).toContainText('1/9');
+  await expect(passport).toContainText('PENS');
+  await expect(passport).toContainText('1/3');
+  await expect(passport).toContainText('DESKS');
+  await expect(passport).toContainText('OPEN PROFILE');
+
+  const online = page.getByRole('button', { name: /PLAY A FRIEND ONLINE/ });
+  await expect(online).toBeVisible();
+  await expect(online).toContainText('INVITE LINK');
+  await expect(online).toContainText('ROOM CODE');
+  await expect(online).toContainText('BEST OF 3');
+  await expect(online).toContainText('REMATCH');
+  await expect(page.getByLabel('Pen physics feature')).toContainText('stay separate');
+
+  await online.click();
+  await expect(page.getByLabel('Match features')).toContainText('BEST OF 3');
+  await expect(page.getByRole('textbox', { name: 'Room code' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create invite link/ })).toBeVisible();
+});
+
+test('visible feature cards fit on a narrow phone', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.getByLabel('Your name').fill('Rafi');
+  await page.getByRole('button', { name: /Claim my desk/ }).click();
+  await expect(page.getByRole('button', { name: 'Open your Player Passport' })).toBeVisible();
+  await page.getByText('PLAY ANOTHER WAY').scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: /PLAY A FRIEND ONLINE/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test('rejects a blank name and supports mode selection', async ({ page }) => {
   await page.getByRole('button', { name: /Claim my desk/ }).click();
   await expect(page.getByRole('alert')).toHaveText('Write a name before the bell rings.');
@@ -65,13 +103,13 @@ test('rejects a blank name and supports mode selection', async ({ page }) => {
 test('starts a same-device friend match with both player names', async ({ page }) => {
   await page.getByLabel('Your name').fill('Rafi');
   await page.getByRole('button', { name: /Claim my desk/ }).click();
-  await page.getByRole('button', { name: /FRIEND/ }).click();
+  await page.getByRole('button', { name: /SAME-DEVICE LOCAL/ }).click();
 
   await expect(page.getByRole('heading', { name: 'Choose your rival' })).toBeVisible();
   await expect(page.getByText('Rafi', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: /FRIEND/ })).toBeVisible();
-  await page.getByRole('button', { name: /FRIEND/ }).click();
+  await expect(page.getByRole('button', { name: /SAME-DEVICE LOCAL/ })).toBeVisible();
+  await page.getByRole('button', { name: /SAME-DEVICE LOCAL/ }).click();
   await expect(page.getByRole('heading', { name: 'Choose your rival' })).toBeVisible();
   const rivalInput = page.getByLabel('Player 2 name');
   await rivalInput.focus();
@@ -92,7 +130,7 @@ test('starts a same-device friend match with both player names', async ({ page }
 test('local match hands control from the blue pen to the red pen and back', async ({ page }) => {
   await page.getByLabel('Your name').fill('Rafi');
   await page.getByRole('button', { name: /Claim my desk/ }).click();
-  await page.getByRole('button', { name: /FRIEND/ }).click();
+  await page.getByRole('button', { name: /SAME-DEVICE LOCAL/ }).click();
   await page.getByLabel('Player 2 name').fill('Priya');
   await page.getByRole('button', { name: /Start local match/ }).click();
 
@@ -112,7 +150,7 @@ test('local match hands control from the blue pen to the red pen and back', asyn
 test('supports 4 players in same-device local match', async ({ page }) => {
   await page.getByLabel('Your name').fill('Rafi');
   await page.getByRole('button', { name: /Claim my desk/ }).click();
-  await page.getByRole('button', { name: /FRIEND/ }).click();
+  await page.getByRole('button', { name: /SAME-DEVICE LOCAL/ }).click();
 
   await page.getByRole('button', { name: '4 Players' }).click();
   await page.getByLabel('Player 2 name').fill('Priya');

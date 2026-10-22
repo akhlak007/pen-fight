@@ -10,6 +10,7 @@ describe('AppStore', () => {
     expect(store.snapshot.phase).toBe('booting');
     expect(store.snapshot.player.name).toBe('');
     expect(store.snapshot.settings.graphicsProfile).toBe('auto');
+    expect(store.snapshot.profile).toMatchObject({ avatarId: 'cool', xp: 0, matches: 0 });
     expect(Object.isFrozen(store.snapshot)).toBe(true);
   });
 
@@ -103,13 +104,81 @@ describe('match rules', () => {
     store.recordPoint(0);
     expect(store.snapshot.phase).toBe('result');
     expect(store.snapshot.match?.score).toEqual([2, 0]);
+    expect(store.snapshot.profile).toMatchObject({ xp: 100, wins: 1, matches: 1 });
+    expect(store.snapshot.match?.reward).toMatchObject({ eligible: true, xp: 100 });
   });
 
-  it('keeps practice mode scoreless', () => {
+  it('records a result once and starts a fresh reward on rematch', () => {
+    const store = readyStore('quick');
+    store.recordPoint(1);
+    store.recordPoint(1);
+    expect(store.snapshot.profile).toMatchObject({ xp: 60, wins: 0, matches: 1 });
+    store.recordPoint(1);
+    expect(store.snapshot.profile.matches).toBe(1);
+
+    store.startMatch('quick');
+    store.recordPoint(0);
+    store.recordPoint(0);
+    expect(store.snapshot.profile).toMatchObject({ xp: 160, wins: 1, matches: 2 });
+  });
+
+  it('finishes practice without awarding progression', () => {
     const store = readyStore('practice');
     store.recordPoint(0);
-    expect(store.snapshot.match?.score).toEqual([0, 0]);
-    expect(store.snapshot.phase).toBe('match');
+    store.recordPoint(0);
+    expect(store.snapshot.match?.score).toEqual([2, 0]);
+    expect(store.snapshot.phase).toBe('result');
+    expect(store.snapshot.profile).toMatchObject({ xp: 0, wins: 0, matches: 0 });
+    expect(store.snapshot.match?.reward).toMatchObject({ eligible: false, reason: 'practice' });
+  });
+
+  it('rejects unknown and locked cosmetics in the store', () => {
+    const store = new AppStore();
+    expect(() => store.updateProfile({ avatarId: 'unknown' })).toThrow(/avatar/i);
+    expect(() => store.updateProfile({ flagCode: 'XX' })).toThrow(/flag/i);
+    expect(() => store.updateProfile({ selectedPenId: 'red-comet' })).toThrow(/locked/i);
+    expect(() => store.updateProfile({ selectedDeskId: 'science-lab' })).toThrow(/locked/i);
+  });
+
+  it('allows a preserved legacy pen unlock below its level requirement', () => {
+    const store = new AppStore();
+    store.hydrate('', store.snapshot.settings, {
+      ...store.snapshot.profile,
+      unlockedCosmeticIds: ['classic-blue', 'red-comet'],
+    });
+    expect(() => store.updateProfile({ selectedPenId: 'red-comet' })).not.toThrow();
+    expect(store.snapshot.profile.selectedPenId).toBe('red-comet');
+  });
+
+  it('deduplicates a replayed online result reward', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startOnlineMatch('Priya', ['Rafi', 'Priya'], 1);
+    store.syncOnlineMatch([0, 2], 1, 'result', 'abc234-8');
+    expect(store.snapshot.profile).toMatchObject({ xp: 140, matches: 1, wins: 1 });
+
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startOnlineMatch('Priya', ['Rafi', 'Priya'], 1);
+    store.syncOnlineMatch([0, 2], 1, 'result', 'abc234-8');
+    expect(store.snapshot.profile).toMatchObject({ xp: 140, matches: 1, wins: 1 });
+    expect(store.snapshot.match?.reward).toMatchObject({ eligible: false, reason: 'duplicate' });
+  });
+
+  it('starts a fresh reward cycle when an online guest receives a rematch', () => {
+    const store = new AppStore();
+    store.transition('home');
+    store.transition('settingUpLocal');
+    store.startOnlineMatch('Priya', ['Rafi', 'Priya'], 1);
+    store.syncOnlineMatch([0, 2], 1, 'result', 'abc234-8');
+    store.syncOnlineMatch([0, 0], 0, 'match', 'abc234-9');
+    expect(store.snapshot.match).toMatchObject({ rewardRecorded: false, score: [0, 0] });
+    expect(store.snapshot.match?.reward).toBeUndefined();
+
+    store.syncOnlineMatch([2, 0], 0, 'result', 'abc234-10');
+    expect(store.snapshot.profile).toMatchObject({ xp: 220, matches: 2, wins: 1 });
+    expect(store.snapshot.match?.reward).toMatchObject({ eligible: true, xp: 80 });
   });
 
   it('scores local matches and preserves the rival name for a rematch', () => {
@@ -123,6 +192,8 @@ describe('match rules', () => {
     expect(store.snapshot.phase).toBe('result');
     expect(store.snapshot.match?.score).toEqual([0, 2]);
     expect(store.snapshot.match?.rivalName).toBe('Priya');
+    expect(store.snapshot.profile.xp).toBe(0);
+    expect(store.snapshot.match?.reward).toMatchObject({ eligible: false, reason: 'local' });
 
     store.startMatch('local', 'Priya');
     expect(store.snapshot.match).toMatchObject({ mode: 'local', rivalName: 'Priya', score: [0, 0] });

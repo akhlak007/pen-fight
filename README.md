@@ -104,6 +104,10 @@
 
 ---
 
+## ☁️ Deploying on Render
+
+The production-ready Node service, persistent SQLite leaderboard, WebSocket rooms, health check, and Render Blueprint are included. Follow [the Render deployment guide](game-web/RENDER_DEPLOY.md). A paid Render service with its configured persistent disk is required to preserve player accounts across deploys.
+
 ## 🤝 Contributing
 
 Contributions, ideas, and feature suggestions are always welcome! Feel free to open an issue or submit a Pull Request.

@@ -42,12 +42,21 @@ export class StorageService {
   }
 
   update(patch: Partial<Omit<SaveData, 'version'>>): SaveData {
-    return this.save({ ...this.load(), ...patch, version: 1 });
+    return this.save({ ...this.load(), ...patch, version: 2 });
   }
 
   resetProgress(): SaveData {
     const current = this.load();
-    return this.save({ ...defaultSave, playerName: current.playerName, settings: current.settings });
+    return this.save({
+      ...defaultSave,
+      playerName: current.playerName,
+      settings: current.settings,
+      profile: {
+        ...defaultSave.profile,
+        avatarId: current.profile.avatarId,
+        flagCode: current.profile.flagCode,
+      },
+    });
   }
 
   private importLegacy(): SaveData {

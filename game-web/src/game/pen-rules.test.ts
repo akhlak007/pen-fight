@@ -2,13 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_CORNER,
   assistedDirection,
+  axialShotEfficiency,
   capsuleContact,
   computeFlickAim,
+  edgeChargePixels,
+  fullPullPixels,
+  grabSpinShare,
   isOutsideTable,
+  isPhonePortrait,
   knockoutWinner,
   penHasFallen,
   PLAYER_CORNER,
+  pointerAtScreenEdge,
   resolveEqualMassCollision,
+  shapedFlickPower,
+  spinFromGrab,
 } from './pen-rules';
 
 describe('pen fight table rules', () => {
@@ -64,6 +72,35 @@ describe('pen fight table rules', () => {
     expect(assisted.x).toBeGreaterThan(0.6);
     expect(assisted.y).toBeLessThan(-0.6);
     expect(away).toEqual({ x: -1, y: 0 });
+  });
+
+  it('shapes phone pull power and keeps a center grab straight', () => {
+    expect(isPhonePortrait(390, 844)).toBe(true);
+    expect(isPhonePortrait(1280, 720)).toBe(false);
+    expect(fullPullPixels(400)).toBeCloseTo(120, 4);
+    expect(fullPullPixels(200)).toBe(96);
+    expect(fullPullPixels(1000)).toBe(180);
+    expect(fullPullPixels(390, true)).toBeCloseTo(93.6, 4);
+    expect(shapedFlickPower(11, 120)).toBe(0);
+    expect(shapedFlickPower(12, 120)).toBe(0);
+    expect(shapedFlickPower(13, 120)).toBeGreaterThan(0);
+    expect(shapedFlickPower(60, 120)).toBeCloseTo(((60 - 12) / (120 - 12)) ** 1.5, 4);
+    expect(shapedFlickPower(90, fullPullPixels(390, true), true)).toBe(1);
+    expect(shapedFlickPower(165, 180)).toBeCloseTo(((165 - 12) / (180 - 12)) ** 1.5, 4);
+    expect(grabSpinShare(0, 3.2)).toBe(0);
+    expect(grabSpinShare(3.2 * 0.2, 3.2)).toBeCloseTo(0, 6);
+    expect(grabSpinShare(3.2, 3.2)).toBeCloseTo(1, 4);
+    expect(axialShotEfficiency(1, 0, 1, 0)).toBeCloseTo(0.82, 4);
+    expect(axialShotEfficiency(0, 1, 1, 0)).toBeCloseTo(1, 4);
+    expect(spinFromGrab(0, 1)).toBe(0);
+    expect(spinFromGrab(1, 1)).toBeCloseTo(7.5, 4);
+  });
+
+  it('keeps charging when a thumb is pulled into the screen edge', () => {
+    expect(pointerAtScreenEdge(10, 400, 390, 844, -40, 0)).toBe(true);
+    expect(pointerAtScreenEdge(180, 400, 390, 844, -40, 0)).toBe(false);
+    expect(edgeChargePixels(true, 0.1, 0, 100)).toBeCloseTo(24, 4);
+    expect(edgeChargePixels(false, 0.1, 4, 100)).toBe(4);
   });
 
   it('detects contact between the ends of long pens', () => {

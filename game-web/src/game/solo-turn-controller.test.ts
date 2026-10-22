@@ -47,6 +47,17 @@ describe('SoloTurnController', () => {
     expect(turns.tick(0.51, 0)).toBe('aiFlick');
   });
 
+  it('ends a shot after the safety timeout even if motion never becomes quiet', () => {
+    const turns = new SoloTurnController();
+    turns.begin('local');
+    turns.playerFlicked();
+
+    expect(turns.tick(4.9, 10)).toBeNull();
+    expect(turns.phase).toBe('playerMoving');
+    expect(turns.tick(0.11, 10)).toBe('playerReady');
+    expect(turns.activePlayer).toBe(1);
+  });
+
   it('locks input while a pen is falling and resets after the point', () => {
     const turns = new SoloTurnController();
     turns.begin('quick');

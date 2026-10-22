@@ -6,11 +6,13 @@ export type ArenaAction = 'ready' | 'aiming' | 'playerMoving' | 'aiWaiting' | 'a
 
 const settleSpeed = 0.45;
 const settleDelay = 0.28;
+const settleTimeout = 5;
 const aiThinkDelay = 0.5;
 
 export class SoloTurnController {
   #phase: TurnPhase = 'player';
   #quietTime = 0;
+  #moveTime = 0;
   #waitTime = 0;
   #mode: MatchMode = 'quick';
   #activePlayer = 0;
@@ -32,7 +34,12 @@ export class SoloTurnController {
   isEliminated(player: number): boolean { return this.#eliminated.has(player); }
   eliminatePlayer(player: number): void { this.#eliminated.add(player); }
 
-  syncState(player: number, phase: TurnPhase): void { this.#activePlayer = player; this.#phase = phase; this.#quietTime = 0; }
+  syncState(player: number, phase: TurnPhase): void {
+    this.#activePlayer = player;
+    this.#phase = phase;
+    this.#quietTime = 0;
+    this.#moveTime = 0;
+  }
 
   begin(mode: MatchMode, startingPlayer = 0, playerCount = 2): void {
     this.#mode = mode;
@@ -41,6 +48,7 @@ export class SoloTurnController {
     this.#eliminated.clear();
     this.#phase = mode === 'quick' && startingPlayer === 1 ? 'aiWaiting' : 'player';
     this.#quietTime = 0;
+    this.#moveTime = 0;
     this.#waitTime = 0;
   }
 
@@ -48,14 +56,17 @@ export class SoloTurnController {
     if (this.#phase !== 'player') return false;
     this.#phase = 'playerMoving';
     this.#quietTime = 0;
+    this.#moveTime = 0;
     return true;
   }
 
   tick(delta: number, totalSpeed: number): TurnAction {
     if (this.#phase === 'playerMoving' || this.#phase === 'aiMoving') {
+      this.#moveTime += delta;
       this.#quietTime = totalSpeed < settleSpeed ? this.#quietTime + delta : 0;
-      if (this.#quietTime < settleDelay) return null;
+      if (this.#quietTime < settleDelay && this.#moveTime < settleTimeout) return null;
       this.#quietTime = 0;
+      this.#moveTime = 0;
       if (this.#phase === 'playerMoving' && this.#mode === 'quick') {
         this.#phase = 'aiWaiting';
         this.#activePlayer = 1;
@@ -84,6 +95,7 @@ export class SoloTurnController {
       this.#waitTime += delta;
       if (this.#waitTime >= aiThinkDelay) {
         this.#phase = 'aiMoving';
+        this.#moveTime = 0;
         return 'aiFlick';
       }
     }
@@ -97,6 +109,7 @@ export class SoloTurnController {
     this.#activePlayer = nextPlayer % this.#playerCount;
     this.#phase = this.#mode === 'quick' && nextPlayer === 1 ? 'aiWaiting' : 'player';
     this.#quietTime = 0;
+    this.#moveTime = 0;
     this.#waitTime = 0;
   }
 }

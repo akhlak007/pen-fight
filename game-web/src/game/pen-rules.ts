@@ -33,6 +33,85 @@ export function penHasFallen(
   return supported < Math.ceil(samples / 2);
 }
 
+export const AXIAL_EFFICIENCY = 0.82;
+export const STRAIGHT_GRAB_SHARE = 0.2;
+export const MIN_FLICK_PIXELS = 12;
+export const AIM_DEAD_ZONE_PIXELS = MIN_FLICK_PIXELS;
+export const EDGE_MARGIN_PIXELS = 28;
+export const EDGE_CHARGE_PIXELS_PER_SECOND = 240;
+
+/** A tall, narrow viewport. The long desk axis already runs up this screen. */
+export function isPhonePortrait(width: number, height: number): boolean {
+  return height >= width;
+}
+
+/** Phone pulls are shorter; other layouts retain the original 30% drag range. */
+export function fullPullPixels(shortSide: number, compact = false): number {
+  return compact
+    ? Math.max(84, Math.min(150, shortSide * 0.24))
+    : Math.max(96, Math.min(180, shortSide * 0.3));
+}
+
+/** Pull ratio raised to 1.5 for fine control; phones get a forgiving maximum-power band. */
+export function shapedFlickPower(pullPixels: number, fullPull: number, snapMaximum = false): number {
+  if (fullPull <= AIM_DEAD_ZONE_PIXELS || pullPixels <= AIM_DEAD_ZONE_PIXELS) return 0;
+  const linear = clamp01(
+    (pullPixels - AIM_DEAD_ZONE_PIXELS) / (fullPull - AIM_DEAD_ZONE_PIXELS),
+  );
+  if (snapMaximum && linear >= 0.92) return 1;
+  return linear ** 1.5;
+}
+
+/**
+ * 0 through the middle fifth of the pen. Grows to ±1 at a tip.
+ * Positive means the grab is toward local +X.
+ */
+export function grabSpinShare(along: number, halfLength: number): number {
+  if (halfLength <= 0) return 0;
+  const share = Math.max(-1, Math.min(1, along / halfLength));
+  if (Math.abs(share) <= STRAIGHT_GRAB_SHARE) return 0;
+  const sign = Math.sign(share);
+  return sign * (Math.abs(share) - STRAIGHT_GRAB_SHARE) / (1 - STRAIGHT_GRAB_SHARE);
+}
+
+/** A push along the barrel is weaker than a side hit. */
+export function axialShotEfficiency(pullX: number, pullY: number, forwardX: number, forwardY: number): number {
+  const pull = Math.hypot(pullX, pullY);
+  const forward = Math.hypot(forwardX, forwardY);
+  if (pull < 1e-6 || forward < 1e-6) return 1;
+  const axial = Math.abs((pullX * forwardX + pullY * forwardY) / (pull * forward));
+  const lateral = Math.sqrt(Math.max(0, 1 - axial * axial));
+  return Math.hypot(AXIAL_EFFICIENCY * axial, lateral);
+}
+
+/** Spin applied when the shot is released. Center grabs stay at 0. */
+export function spinFromGrab(share: number, power: number): number {
+  return share * power * 7.5;
+}
+
+/** Keeps charging after the thumb hits a screen edge and is still pulling outward. */
+export function pointerAtScreenEdge(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  deltaX: number,
+  deltaY: number,
+): boolean {
+  const length = Math.hypot(deltaX, deltaY);
+  if (length < AIM_DEAD_ZONE_PIXELS || width <= 0 || height <= 0) return false;
+  const outward = 0.55;
+  return (x <= EDGE_MARGIN_PIXELS && -deltaX / length > outward)
+    || (x >= width - EDGE_MARGIN_PIXELS && deltaX / length > outward)
+    || (y <= EDGE_MARGIN_PIXELS && -deltaY / length > outward)
+    || (y >= height - EDGE_MARGIN_PIXELS && deltaY / length > outward);
+}
+
+export function edgeChargePixels(atEdge: boolean, elapsed: number, currentExtra: number, room: number): number {
+  if (!atEdge || elapsed <= 0 || room <= 0) return currentExtra;
+  return Math.min(room, currentExtra + EDGE_CHARGE_PIXELS_PER_SECOND * elapsed);
+}
+
 /** Converts a screen-space pull gesture into the opposite tabletop shot. */
 export function computeFlickAim(deltaX: number, deltaY: number, maximumPull = 180): FlickAim {
   const pullDistance = Math.min(Math.hypot(deltaX, deltaY), maximumPull);

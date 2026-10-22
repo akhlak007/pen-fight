@@ -3,9 +3,11 @@ import { createServer, type Server } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
-import { MAX_FRAME_BYTES, parseClientMessage, type ClientMessage, type Seat, type ServerMessage } from '../src/network/protocol';
+import { MAX_FRAME_BYTES, parseClientMessage, type ClientMessage, type PublicProfile, type Seat, type ServerMessage } from '../src/network/protocol';
+import { AccountStore } from './account-store';
+import { ApiRouter } from './api-router';
 
-interface Peer { socket: WebSocket | null; name: string; tokenHash: string; seq: number; disconnectedAt?: number }
+interface Peer { socket: WebSocket | null; name: string; profile?: PublicProfile; tokenHash: string; seq: number; disconnectedAt?: number }
 interface Room { code: string; host: Peer; guest?: Peer; touchedAt: number; latestSnapshot?: ServerMessage; latestState?: ServerMessage; currentPlayer: 0 | 1; traffic: number; trafficWindow: number }
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -16,17 +18,27 @@ const send = (socket: WebSocket | null, message: ServerMessage) => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 };
 
-export interface RoomServerOptions { port?: number; host?: string; dist?: string; roomTtlMs?: number; reconnectMs?: number; allowCrossPortOrigin?: boolean }
+export interface RoomServerOptions { port?: number; host?: string; dist?: string; roomTtlMs?: number; reconnectMs?: number; allowCrossPortOrigin?: boolean; accountDatabase?: string; secureCookies?: boolean }
 
 export function createRoomServer(options: RoomServerOptions = {}): { server: Server; rooms: Map<string, Room>; listen(): Promise<number>; close(): Promise<void> } {
   const rooms = new Map<string, Room>();
   const dist = options.dist ?? join(process.cwd(), 'dist');
+  const accounts = new AccountStore(options.accountDatabase ?? (options.port === 0 ? ':memory:' : join(process.cwd(), 'data', 'pen-fight.sqlite')));
+  const api = new ApiRouter(accounts, {
+    secureCookies: options.secureCookies,
+    allowCrossPortOrigin: options.allowCrossPortOrigin,
+  });
   const roomTtl = options.roomTtlMs ?? 30 * 60_000;
   const reconnectMs = options.reconnectMs ?? 30_000;
   const server = createServer((request, response) => {
+    if ((request.url ?? '').startsWith('/api/')) {
+      void api.handle(request, response);
+      return;
+    }
     if (request.url === '/health') {
-      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+      const healthy = accounts.healthy();
+      response.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ ok: healthy }));
       return;
     }
     const path = normalize((request.url ?? '/').split('?')[0] ?? '/').replace(/^(\.\.[/\\])+/, '');
@@ -65,7 +77,7 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
         if (membership) { send(socket, { type: 'error', code: 'forbidden', message: 'This connection already belongs to a room.' }); return; }
         let roomCode = code(); while (rooms.has(roomCode)) roomCode = code();
         const issuedToken = token();
-        const room: Room = { code: roomCode, host: { socket, name: message.name, tokenHash: hashToken(issuedToken), seq: -1 }, touchedAt: Date.now(), currentPlayer: 0, traffic: 0, trafficWindow: Date.now() };
+        const room: Room = { code: roomCode, host: { socket, name: message.name, profile: message.profile, tokenHash: hashToken(issuedToken), seq: -1 }, touchedAt: Date.now(), currentPlayer: 0, traffic: 0, trafficWindow: Date.now() };
         rooms.set(roomCode, room); membership = { room, seat: 'host' };
         send(socket, { type: 'created', room: roomCode, seat: 'host', token: issuedToken }); return;
       }
@@ -75,11 +87,11 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
         if (!room) { send(socket, { type: 'error', code: 'room_missing', message: 'That room has expired.' }); return; }
         if (!room.host.socket) { send(socket, { type: 'error', code: 'room_missing', message: 'The host is reconnecting. Try this invite again shortly.' }); return; }
         if (room.guest && (!room.guest.disconnectedAt || Date.now() - room.guest.disconnectedAt <= reconnectMs)) { send(socket, { type: 'error', code: 'room_full', message: 'That room already has two players.' }); return; }
-        const issuedToken = token(); room.guest = { socket, name: message.name, tokenHash: hashToken(issuedToken), seq: -1 }; room.touchedAt = Date.now(); membership = { room, seat: 'guest' };
-        send(socket, { type: 'joined', room: room.code, seat: 'guest', token: issuedToken, players: [room.host.name, room.guest.name] });
+        const issuedToken = token(); room.guest = { socket, name: message.name, profile: message.profile, tokenHash: hashToken(issuedToken), seq: -1 }; room.touchedAt = Date.now(); membership = { room, seat: 'guest' };
+        send(socket, { type: 'joined', room: room.code, seat: 'guest', token: issuedToken, players: [room.host.name, room.guest.name], ...(room.host.profile ? { profiles: room.guest.profile ? [room.host.profile, room.guest.profile] : [room.host.profile] } : {}) });
         if (room.latestSnapshot) send(socket, room.latestSnapshot);
         if (room.latestState) send(socket, room.latestState);
-        send(room.host.socket, { type: 'peer', connected: true, name: room.guest.name }); return;
+        send(room.host.socket, { type: 'peer', connected: true, name: room.guest.name, profile: room.guest.profile }); return;
       }
       if (message.type === 'resume') {
         if (membership) { send(socket, { type: 'error', code: 'forbidden', message: 'This connection already belongs to a room.' }); return; }
@@ -89,8 +101,8 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
         if (!room || !seat) { send(socket, { type: 'error', code: 'room_missing', message: 'This invite can no longer be resumed.' }); return; }
         const peer = peerOf(room, seat)!; const previousSocket = peer.socket; peer.socket = socket; peer.disconnectedAt = undefined; membership = { room, seat }; previousSocket?.close(1000, 'Seat resumed elsewhere');
         const bothConnected = Boolean(room.host.socket && room.guest?.socket);
-        send(socket, { type: 'joined', room: room.code, seat, token: message.token, players: bothConnected && room.guest ? [room.host.name, room.guest.name] : [room.host.name] });
-        if (room.latestSnapshot) send(socket, room.latestSnapshot); if (room.latestState) send(socket, room.latestState); send(other(room, seat)?.socket ?? null, { type: 'peer', connected: true, name: peer.name }); return;
+        send(socket, { type: 'joined', room: room.code, seat, token: message.token, players: bothConnected && room.guest ? [room.host.name, room.guest.name] : [room.host.name], ...(room.host.profile ? { profiles: bothConnected && room.guest?.profile ? [room.host.profile, room.guest.profile] : [room.host.profile] } : {}) });
+        if (room.latestSnapshot) send(socket, room.latestSnapshot); if (room.latestState) send(socket, room.latestState); send(other(room, seat)?.socket ?? null, { type: 'peer', connected: true, name: peer.name, profile: peer.profile }); return;
       }
       if (!membership) { send(socket, { type: 'error', code: 'forbidden', message: 'Join a room first.' }); return; }
       const { room, seat } = membership; const peer = peerOf(room, seat)!;
@@ -131,6 +143,15 @@ export function createRoomServer(options: RoomServerOptions = {}): { server: Ser
   return {
     server, rooms,
     listen: () => new Promise((resolve) => server.listen(options.port ?? 4174, options.host ?? '0.0.0.0', () => resolve((server.address() as { port: number }).port))),
-    close: () => new Promise((resolve, reject) => { clearInterval(cleanup); clearInterval(heartbeat); wss.close(); server.close((error) => error ? reject(error) : resolve()); }),
+    close: () => new Promise((resolve, reject) => {
+      clearInterval(cleanup);
+      clearInterval(heartbeat);
+      for (const socket of wss.clients) socket.terminate();
+      wss.close();
+      server.close((error) => {
+        accounts.close();
+        if (error) reject(error); else resolve();
+      });
+    }),
   };
 }
