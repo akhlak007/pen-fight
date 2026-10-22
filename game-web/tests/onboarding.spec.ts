@@ -46,6 +46,18 @@ test('notebook home stacks cleanly on a narrow screen', async ({ page }) => {
   expect(hasHorizontalOverflow).toBe(false);
 });
 
+test('shows the developer portfolio credit in the notebook footer', async ({ page }) => {
+  await page.getByLabel('Your name').fill('Rafi');
+  await page.getByRole('button', { name: /Claim my desk/ }).click();
+
+  const developer = page.getByRole('link', { name: 'Developer Akhlak' });
+  await expect(developer).toBeVisible();
+  await expect(developer).toHaveAttribute('href', 'https://md-akhlak-ud-jaman.web.app/');
+  await expect(developer).toHaveAttribute('target', '_blank');
+  await expect(developer).toHaveAttribute('rel', /noopener/);
+  await expect(page.getByText(/rinks___g|littleplaycode/)).not.toBeVisible();
+});
+
 test('completed profile and online features are visible from the home screen', async ({ page }) => {
   await page.getByLabel('Your name').fill('Rafi');
   await page.getByRole('button', { name: /Claim my desk/ }).click();

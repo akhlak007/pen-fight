@@ -429,7 +429,7 @@ export class UiRoot {
               </div>
 
               <footer class="notebook-footer-notes">
-                <p class="bench-credit">made on the last bench by @rinks___g and @littleplaycode</p>
+                <p class="bench-credit">Made by <a href="https://md-akhlak-ud-jaman.web.app/" class="notebook-link" target="_blank" rel="noopener noreferrer">Developer Akhlak</a></p>
                 <nav class="footer-links" aria-label="Game links">
                   <a href="#how-to-play" class="notebook-link" data-action="info-how">How To Play Pen Fight</a> ·
                   <a href="#what-is-pen-fight" class="notebook-link" data-action="info-what">What is Pen Fight?</a> ·
